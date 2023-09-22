@@ -1,2 +1,2 @@
-# sampler_doc
+# Sampler doc
 Documentation for old sampler formats
