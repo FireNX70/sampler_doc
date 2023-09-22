@@ -1,0 +1,311 @@
+S-5XX (S-50/S-550/W-30) diskette formats.
+
+S-550 format figured out mostly thanks to Gary J. Murakami's format defs and
+partly thanks to an old e-mail by Marc Resibois found on Sgroup.
+
+S-50 and S-7XX formats partly figured out thanks to llamamusic's online tools.
+
+
+Disks are always 720KB DSDD.
+Big-endian.
+			
+Sample data is organized in two banks. 18 segments per bank.
+12288 12-bit samples per segment packed as TM BB TM. The top nibble in BB
+belongs to the first sample. The bottom nibble belongs to the second one.
+
+Audio may or may not have pre-emphasis, I'm not sure. It didn't seem to me like
+it did.
+
+Header at 0x00.
+Patch data starts at 0xFC00.
+Function parameters at 0x10C00.
+MIDI parameters at 0x10D00.
+Tone parameters start at 0x10E00.
+Tone list starts at 0x11E00.
+Sample bank A starts at 0x12000.
+Sample bank B starts at 0x63000.
+
+Common
+	Function parameters
+		0x00: Master tune (u8).
+		0x01: Unknown. 13 bytes. Murakami's documentation calls this "dummy1".
+			  Usually mostly filled with 0s.
+		0x0E: Audio trigger. 1 byte. Not sure how it works.
+		0x0F: Unknown. 1 byte. Murakami's documentation calls this "dummy2".
+			  Seems to usually be 0.
+		0x10: Voice mode. 1 byte. Actual values change depending on machine.
+		0x11: Multi MIDI rx channels. 8 bytes/slots. Values vary depending on
+			  machine.
+		0x19: Multi patch number. 8 bytes/slots. Values vary depending on
+			  machine.
+		0x21: Unknown. 9 bytes/slots. Seems to usually contain a 1-7 sequence
+			  with zeroes at either side or after it. Murakami's documentation
+			  calls this "dummy3".
+		0x2A: Keyboard display. 1 byte. No idea how it works.
+		0x2B: Multi level. 8 bytes/slots.
+		0x33: Disk label. 60 characters.
+		0x6F: Unknown. 4 bytes. Usually filled with zeroes. Murakami's
+			  documentation calls this "dummy4".
+		0x73: External controller. 1 byte, probably a boolean.
+		0x74: Unknown. 140 bytes. Murakami's documentation calls this "dummy5".
+
+		The first 12 characters of the disk label are in order. After that; it's
+		the first characters of the next 4 lines, then the second characters of
+		the next 4 lines, etc.
+
+	MIDI parameters
+		0x00: Unknown. 32 bytes. Murakami's documentation calls this "dummy1".
+		0x20: Rx channel. 8 bytes/slots. Seems to usually match Function
+			  parameter's "Multi MIDI Rx channels".
+		0x28: Rx program change. 8 bytes/slots. Seems to usually be all 1s.
+		0x30: Rx bender. 8 bytes/slots. Seems to usually be all 1s.
+		0x38: Rx modulation. 8 bytes/slots. Seems to usually be all 1s.
+		0x40: Rx hold. 8 bytes/slots. Seems to usually be all 1s.
+		0x48: Rx aftertouch. 8 bytes/slots.
+		0x50: Rx volume. 8 bytes/slots.
+		0x58: Rx bend range. 8 bytes/slots.
+		0x60: Unknown. 1 byte. Murakami's documentation calls this "dummy2".
+		0x61: SysEx. 1 byte. Flag?
+		0x62: Device ID. 1 byte. Usually 0.
+		0x63: Unknown. 1 byte. Murakami's documentation calls this "dummy3".
+		0x64: Rx program change number. 32 bytes/slots.
+		0x84: Unknown. 124 bytes. Murakami's documentation calls this "dummy4".
+			  Usually 0s.
+
+	Tone parameters (32 entries per disk)
+		0x00: Tone name. 8 chars.
+		0x08: Output assign. 1 byte.
+		0x09: Source tone. 1 byte.
+		0x0A: Subtone flag. 1 byte.
+		0x0B: Sampling frequency. 1 byte. Probably flag.
+		0x0C: Original key number. 1 byte.
+		0x0D: Wave bank. 0 = A, 1 = B, 2 = unused.
+		0x0E: Wave segment start. 1 byte.
+		0x0F: Wave segment count. 1 byte.
+		0x10: Start point. 24-bit uint. Offset from the start of the starting
+			  segment in number of samples.
+		0x13: End point. 24-bit uint. I think it counts from the start of the
+			  starting segment, not from the offset.
+		0x16: Loop point. 24-bit uint. I think it counts from the start of the
+			  starting segment, not from the offset.
+		0x19: Loop mode. 1 byte.
+		0x1A: TVA LFO depth. 1 byte.
+		0x1B: Unknown. 1 byte. Murakami's documentation calls this "dummy1".
+		0x1C: LFO rate. 1 byte.
+		0x1D: LFO sync. 1 byte.
+		0x1E: LFO delay. 1 byte.
+		0x1F: Unknown. 1 byte. Murakami's documentation calls this "dummy2".
+		0x20: LFO mode. 1 byte.
+		0x21: LFO depth 1 byte.
+		0x22: LFO polarity. 1 byte.
+		0x23: LFO offset. 1 byte.
+		0x24: Transpose. 1 byte. Probably signed.
+		0x25: Fine tune. 1 byte. Probably signed.
+		0x26: TVF cutoff. 1 byte.
+		0x27: TVF resonance. 1 byte.
+		0x28: TVF key follow. 1 byte.
+		0x29: Unknown. 1 byte. Murakami's documentation calls this "dummy3".
+		0x2A: TVF LFO depth. 1 byte.
+		0x2B: TVF EG depth. 1 byte.
+		0x2C: TVF EG polarity. 1 byte.
+		0x2D: TVF level curve. 1 byte.
+		0x2E: TVF key rate follow. 1 byte.
+		0x2F: TVF velocity rate follow. 1 byte.
+		0x30: Unknown. 1 byte. Murakami's documentation calls this "dummy4".
+		0x31: TVF switch. 1 byte. Probably flag.
+		0x32: Bender switch. 1 byte. Probably flag.
+		0x33: TVA envelope sustain point. 1 byte.
+		0x34: TVA envelope end point.
+		0x35: TVA envelope level 1. 1 byte.
+		0x36: TVA envelope rate 1. 1 byte.
+		0x37: TVA envelope level 2. 1 byte.
+		0x38: TVA envelope rate 2. 1 byte.
+		0x39: TVA envelope level 3. 1 byte.
+		0x3A: TVA envelope rate 3. 1 byte.
+		0x3B: TVA envelope level 4. 1 byte.
+		0x3C: TVA envelope rate 4. 1 byte.
+		0x3D: TVA envelope level 5. 1 byte.
+		0x3E: TVA envelope rate 5. 1 byte.
+		0x3F: TVA envelope level 6. 1 byte.
+		0x40: TVA envelope rate 6. 1 byte.
+		0x41: TVA envelope level 7. 1 byte.
+		0x42: TVA envelope rate 7. 1 byte.
+		0x43: TVA envelope level 8. 1 byte.
+		0x44: TVA envelope rate 8. 1 byte.
+		0x45: Unknown. 1 byte. Murakami's documentation calls this "dummy5".
+		0x46: TVA envelope key rate. 1 byte.
+		0x47: Level. 1 byte.
+		0x48: Envelope velocity rate. 1 byte.
+		0x49: Recording threshold. 1 byte.
+		0x4A: Recording pretrigger. 1 byte.
+		0x4B: Recording sampling frequency. 1 byte. Probably flag.
+		0x4C: Recording start point. 24-bit uint. Offset from the start of the
+			  starting segment in number of samples.
+		0x4F: Recording end point. 24-bit uint. I think it counts from the start
+			  of the starting segment, not from the offset.
+		0x52: Recording loop point. 24-bit uint. I think it counts from the
+			  start of the starting segment, not from the offset.
+		0x55: Zoom (Time). 1 byte. Used during sample editing. X zoom.
+		0x56: Zoom (Level). 1 byte. Used during sample editing. Y zoom.
+		0x57: Copy source. 1 byte. Probably related to sample editing.
+		0x58: Loop tune. 1 byte. Probably signed.
+		0x59: TVA level curve. 1 byte. See S-50 manual.
+		0x5A: Unknown. 12 bytes. Murakami's documentation calls this "dummy6".
+		0x66: Loop length. 24-bit uint. Loop length in number of samples.
+		0x69: Pitch follow. 1 byte.
+		0x6A: Envelope zoom. 1 byte. Probably only used during editing.
+		0x6B: TVF envelope sustain point. 1 byte.
+		0x6C: TVF envelope end point. 1 byte.
+		0x6D: TVF envelope level 1. 1 byte.
+		0x6E: TVF envelope rate 1. 1 byte.
+		0x6F: TVF envelope level 2. 1 byte.
+		0x70: TVF envelope rate 2. 1 byte.
+		0x71: TVF envelope level 3. 1 byte.
+		0x72: TVF envelope rate 3. 1 byte.
+		0x73: TVF envelope level 4. 1 byte.
+		0x74: TVF envelope rate 4. 1 byte.
+		0x75: TVF envelope level 5. 1 byte.
+		0x76: TVF envelope rate 5. 1 byte.
+		0x77: TVF envelope level 6. 1 byte.
+		0x78: TVF envelope rate 6. 1 byte.
+		0x79: TVF envelope level 7. 1 byte.
+		0x7A: TVF envelope rate 7. 1 byte.
+		0x7B: TVF envelope level 8. 1 byte.
+		0x7C: TVF envelope rate 8. 1 byte.
+		0x7D: Aftertouch switch. 1 byte. Probably flag.
+		0x7E: Unknown. 2 bytes. Murakami's documentation calls this "dummy7".
+			  This one's probably padding.
+
+		The loop point marks the start of the loop. The normal looping mode (0,
+		forward) will loop by playing until the end point and jumping back to
+		the loop point.
+
+		Despite the S-50's lack of real time filters; Roland's own S-550 to S-50
+		converter leaves tones untouched, including their TVF settings. So I'm
+		not sure how those bytes work in the S-50 format.
+
+	Tone list (32 entries per disk)
+		0x00: Tone name. 8 chars.
+		0x08: Output assign. 1 byte.
+		0x09: Source tone. 1 byte.
+		0x0A: Subtone flag. 1 byte.
+		0x0B: Sampling frequency. 1 byte. Probably flag.
+		0x0C: Original key number. 1 byte.
+		0x0D: Wave bank. 0 = A, 1 = B, 2 = unused.
+		0x0E: Wave segment start. 1 byte.
+		0x0F: Wave segment count. 1 byte.
+		
+
+S-50
+	TODO:
+		Figure out patch modulation setting
+		Figure out patch tone to key stuff
+		Figure out value range diffs vs S-550 for function and MIDI
+		parameters
+
+	Machine names are "S-50 MT25A" and "S-51 MT25A".
+
+	Header
+		0x00: 4 0x00 bytes.
+		0x04: Machine name. 10 chars.
+		0x0E: Zero.
+		0x0F: Varies. I've seen both 1 and 4.
+		0x10: System version and copyright. 144 chars.
+		0xA0: Other text. 352 bytes. There's pretty much always "310714" at
+			  0x170, "560804" at 0x190 and "600502" at 0x1B0.
+			
+	S-50 disks can contain the OS, not just samples. The first 62KB after the
+	header seem to be reserved for that.
+
+	There's 8 patch slots per disk. Each patch is 512 bytes long. Unused slots
+	are padded.
+
+	Patch format
+		0x000: Name. 12 chars.
+		0x00C: Bend range. 1 byte.
+		0x00D: Unknown. 1 byte. Murakami's documentation calls this "dummy1".
+		0x00E: After touch sense. 1 byte.
+		0x00F: Unknown. 4 bytes.
+		0x013: Key mode. 1 byte.
+		0x014: Velocity sw threashold. 1 byte.
+		0x015: Unknown. 31 bytes. Some of it is probably padding.
+		0x034: Tone to key 1. 109 bytes.
+		0x0A1: Unknown. 19 bytes.
+		0x0B4: Tone to key 2. 109 bytes.
+		0x120: Unknown. 7 bytes.
+		0x128: Copy source. 1 byte. Editing flag?
+		0x129: Octave shift. 1 byte. Probably signed.
+		0x12A: Output level. 1 byte.
+		0x12B: Unknown. 1 byte. Murakami's documentation calls this "dummy2".
+		0x12C: Detune. 1 byte. Probably signed.
+		0x12D: Velocity mix ratio. 1 byte.
+		0x12E: Aftertouch assign. 1 byte.
+		0x12F: Unknown. 209 bytes. Looks like padding.
+
+
+S-550
+	Machine names are "S550 MT25B" and "S330 MT25C".
+
+	Almost the same as the S-50 format. However, patches are now 256 bytes and
+	there's 16 slots. Patches no longer contain a modulation setting. However,
+	other parameters have been added to patches.
+
+	Patch format
+		0x00: Name. 12 chars.
+		0x0C: Bend range. 1 byte.
+		0x0D: Unknown. 1 byte. Murakami's documentation calls this "dummy1".
+		0x0E: After touch sense. 1 byte.
+		0x0F: Key mode. 1 byte.
+		0x10: Velocity sw threashold. 1 byte.
+		0x11: Tone to key 1. 109 bytes.
+		0x7E: Tone to key 2. 109 bytes.
+		0xEB: Copy source. 1 byte. Editing flag?
+		0xEC: Octave shift. 1 byte. Probably signed.
+		0xED: Output level. 1 byte.
+		0xEE: Unknown. 1 byte. Murakami's documentation calls this "dummy2".
+		0xEF: Detune. 1 byte. Probably signed.
+		0xF0: Velocity mix ratio. 1 byte.
+		0xF1: Aftertouch assign. 1 byte.
+		0xF2: Key assign. 1 byte.
+		0xF3: Output assign. 1 byte.
+		0xF4: Unknown. 12 bytes. Murakami's documentation calls this "dummy2".
+
+
+W-30
+	Machine name is "W-30    ", with the last two bytes being now no
+	longer part of the machine name but rather padding.
+
+	Header
+		0x00: 4 0x00 bytes.
+		0x04: Machine name. 8 chars.
+		0x0C: Looks like it's pretty much always 0x06 0x00 0x00 0x01.
+		0x10: Text block. 112 chars. Contains text indicating the type of disk
+			  at 0x20. Otherwise, mostly filled with spaces. 0xFE at 0x1F, 0x3F,
+			  0x5F and 0x7F.
+		0x80: Padding, 384 bytes.
+
+	The type of disks we're interested in seems to be "W-30 Sound & Song Data
+	Disk".
+			
+	Based on the S-550 format (16 256B patches).
+
+	W-30 sample disks do not contain the OS. The section formerly
+	reserved for the OS is now taken up by sequence data and an extra
+	tone section.
+
+	Extra tone parameters at 0xD800.
+	Extra tone list at 0xF800.
+
+	Extra tones seem to use banks 2 and 3 (probably ROM A and ROM B), with bank
+	4 being the unused value. The normal tone list uses the normal values (Bank
+	A = 0, Bank B = 1, Unused = 2).
+
+	This extra tone section is not mandatory. Out of all disk images I checked,
+	it was only included in the factory library.
+			
+	After taking a look at the W-30's manual, it seems this section contains 64
+	tones that reference wave data in the W-30's ROM and which are treated as 33
+	through 96. These tones can be written and loaded like normal tones.
+	However, these are useless without the W-30's ROM data.
+			
+	The usual 32 tones are treated normally.

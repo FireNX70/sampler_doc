@@ -1,0 +1,107 @@
+S-7XX diskette format.
+
+Can use both 720KB DSDD and 1.44MB DSHD disks.
+
+Little-endian.
+
+Known to use pre-emphasis.
+
+Machine name is "S770 MR25A".
+
+I have partially figured out the DSHD format. I do not have any disk images for
+the DSDD one. I assume it's the same but cut down. I have yet to figure out the
+individual data structures (performances, patches, etc.).
+
+A DSHD disk has slots for 1 volume, 64 performances, 128 patches, 256 partials
+and 512 samples.
+
+The S-770's manual's figures for the sampler's own memory match these, except
+for the partial count where it claims to have 255 slots instead of 256. This
+discrepancy may be a mistake in Roland's own manual.
+
+Header at 0x00.
+Element counts at 0x100.
+Volume name at 0x180.
+Performance list at 0x1200.
+Patch list at 0x1600.
+Partial list at 0x1E00.
+Sample list at 0x2E00.
+Performance parameters at 0x4E00.
+Patch parameters at 0x8E00.
+Partial parameters at 0x10E00.
+Sample parameters at 0x18E00.
+Audio data at 0x1F800.
+
+Header
+	0x00: Padding, 4 bytes.
+	0x04: Machine name, 10 chars.
+	0x0E: Padding, 2 bytes.
+	0x10: Text, 80 chars. Sys. ver, copyright, etc.
+
+Element counts
+	0x00: Unknown, 6 bytes.
+	0x06: Volume count, uint16.
+	0x08: Performance count, uint16.
+	0x0A: Patch count, uint16.
+	0x0C: Partial count, uint16.
+	0x0E: Sample count, uint16.
+
+All lists are made up of 16-char entries holding the names of volumes,
+performances, patches, etc.
+
+
+Performance (256B)
+	0x00: Name, 16 chars.
+	0x10: Probably the patch map. 16 1-byte entries, with each entry as a
+		  patch's index and each slot corresponding to a MIDI channel. 0xFF
+		  seems to be used to indicate a channel is unused.
+	0x20: Unknown, 64 bytes.
+	0x60: Either low note or low fade settings. 16 1-byte slots, 1 per
+		  part/channel. Default value seems to be 0x15 (21).
+	0x70: Either low note or low fade settings. 16 1-byte slots, 1 per
+		  part/channel. Default value seems to be 0x15 (21).
+	0x80: Either high note or high fade settings. 16 1-byte slots, 1 per
+		  part/channel. Default value seems to be 0x6C (108).
+	0x90: Either high note or high fade settings. 16 1-byte slots, 1 per
+		  part/channel. Default value seems to be 0x6C (108).
+	0xA0: Unknown, 96 bytes.
+
+
+Patch (256B)
+	0x00: Name, 16 chars.
+	0x10: Patch index, 8-bit uint.
+	0x11: Unknown, 15 bytes.
+	0x20: Partial map, 88 1-byte slots. Each slot contains a partial's index. It
+		  looks like 0xFF might be used as padding, meaning the manual would be
+		  correct (255 valid partials plus one dummy value).
+	0x78: Unknown, 136 bytes.
+
+
+Partial (128B)
+	0x00: Name, 16 chars.
+	0x10: Sample entries. 4 * 16 bytes.
+	0x50: Unknown, 48 bytes.
+
+
+Partial sample entry (16B)
+	0x00: Sample index, 16-bit uint. 0xFF as dummy value.
+	0x02: Unknown, 14 bytes.
+
+
+Sample parameters (48B)
+	0x00: Name, 16 chars.
+	0x10: Unknown, 32 bytes.
+
+	I have been unable to make any headway into the sample parameters. I think
+	0x2D might hold the sample's root note, but I'm not sure. I don't really
+	know how it marks where its audio data starts and ends, it doesn't really
+	seem straightforward. It might be using some sort of "segment" system like
+	on the S-5XX.
+
+The sample parameter section seems to be made up of several segments of 10
+samples' parameters and 32 bytes of padding. Whenever a segment would be used
+only partially, the remaining slots get padded with data from the previous
+segment. It's fairly easy to tell this dummy data apart because every 4th byte
+in the data section is either 0x7C or 0x7D, which will show up as '|' and '}'.
+
+The audio section on DSHD disks holds 672768 16-bit samples (1314KB).

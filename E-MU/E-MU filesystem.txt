@@ -1,0 +1,93 @@
+E-MU filesystem. Shared by both the EIII and EIV families.
+
+Most of this comes from looking through David García Goñi's emu3fs code and
+inspecting CD images on a hex editor.
+
+512B blocks. Little-endian.
+
+The filesystem is the same for both the EIII and EIV families.
+
+Header
+	0x00: 0x45 0x4D 0x55 0x33 ("EMU3", magic)
+	0x04: Block count (u32) for the whole filesystem. Doesn't seem to actually
+		  match the image size, at least on CD images.
+	0x08: Directory list block address (u32). On EIII filesystems, there's only
+		  one directory.
+	0x0C: Directory list block count (u32).
+	0x10: File list block address (u32).
+	0x14: File list block count (u32).
+	0x18: Cluster list block address (u32).
+	0x1C: Cluster list block count (u32).
+	0x20: Data section block address (u32).
+	0x24: Cluster count (u32).
+	0x28: Cluster shift (u8).
+
+	Min cluster size of 32KB. Min cluster shift is 15, a cluster shift value of
+	0 equates to 15. Cluster size is 1 << (cluster_shift + 15).
+
+	0x29 seems to always be 1.
+	0x2A seems to contain a copy of the filesystem's block count with a slightly
+	different value. It seems to line up better with the end of the padding and
+	the start of the zeroes on CD images. On EIV filesystems, this is a
+	big-endian copy of the filesystem's block count.
+	0x32 seems to always be 1.
+	0x33 seems to always be 0x0D.
+	0x34 and 0x35 sometimes are 1 and sometimes are 0.
+
+	The rest of the first block usually contains zeroes, except for the last two
+	bytes.
+
+	The second block seems to start with a value of either 0x0C or 0x0B,
+	followed by three zeroes. The rest of the block is filled with 0x80.
+
+I have no idea how the cluster list works. It seems it usually starts at block 2
+(0x400) and is made up of unsigned 16-bit values.
+Strangely enough, it contains values of 0x8000 when the max cluster value for a
+file is (according to emu3fs) 0x7FFF. It also contains 0x7FFF in multiple
+places.
+
+The directory list is made up of 32-byte entries, where each one is a directory.
+Again, on EIII filesystems, it seems there's usually only one directory.
+
+Directory
+	0x00: Directory name. 16 chars long.
+	0x10: Unknown.
+	0x11: ID (u8). Directories apparently always use IDs of 0x40 or 0x80.
+	0x12: 7 unsigned 16-bit entries. Each one is a block number (absolute,
+		  0-based), which should be part of the file list. The files listed in
+		  those blocks belong to this directory. 0xFFFF seems to be used as
+		  padding, but I guess any value that doesn't fall within the file
+		  list's blocks would count as such.
+
+File
+	0x00: File name. 16 chars long.
+	0x10: Unknown.
+	0x11: ID (u8). These start counting up from 0. IDs 0x6D and 0x6B seem to be
+		  reserved for "E3 Main Code" and "E3X Main Code", respectively.
+	0x12: 1-based absolute cluster address for the file. 16-bit, unsigned.
+	0x14: Cluster count. 16-bit, unsigned. Amount of clusters used by the file.
+	0x16: Block count. 16-bit, unsigned. Amount of blocks used by the file
+		  within the last cluster.
+	0x18: Byte count. 16-bit, unsigned. Amount of bytes used by the file within
+		  the last block.
+	0x1A: File type. 8-bit. Deleted files are 0, system files are 0x80, standard
+		  files are 0x81 and the first file after a deleted file has file type
+		  0x83, which emu3fs calls "UPD".
+	0x1B: 5 bytes which emu3fs calls "props". I have no idea what these do.
+		  emu3fs initializes them to 0 on EIII filesystems and to "\0E4B0" on
+		  EIV ones.
+
+	Files are all E-MU bank files, except for the two reserved system files.
+	On all CD images I've checked, "E3 Main Code" and "E3X Main Code" only
+	contain padding.
+
+	To get a file's address it's:
+		data_section_block_addr * block_size + (cluster_addr - 1) * cluster_size
+
+	To get the actual file size it's:
+		(cluster_cnt - 1) * cluster_size +
+		(block_cnt - 1) * block_size +
+		byte_cnt
+	
+	I'd like to see what would happen with a file if its end were to align
+	perfectly to a cluster or a block.

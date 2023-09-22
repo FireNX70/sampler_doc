@@ -1,0 +1,320 @@
+EIII bank formats (E3B, E3X and ESI) partly documented thanks to Phil
+Tipping's annotations at http://www.philizound.co.uk/freebies/software/
+decode-emu/decode-emu.html (Analyse EMU Info package), and especially thanks
+David García Goñi's emu3bm project.
+
+Controllers and ranges are partly documented, there's still some work to do.
+Investigate preset linking and unknown sections.
+		
+.e3b/.eb3
+	It's bank data, not just patches. These files can only hold a maximum of
+	100 patches and 99 samples. Patch indices seem to range from 0 to 99 and
+	sample indices from 1 to 99.
+
+	Header
+		0x00: 45 4D 55 4C 41 54 4F 52 20 54 48 52 45 45 20 00 (EMULATOR THREE )
+		0x10: Bank name. 16 bytes.
+		0x20: Apparently a 32-bit uint. emu3bm calls this "objects" and adds 1
+			  to it when printing. I assume it's (presets + samples - 1).
+		0x24: According to emu3bm the next 12 bytes are padding. I've always
+			  seen 01 at 0x24 and 0x28, but 0x2C seems to vary.
+		0x30: According to emu3bm it's a 32-bit uint, which it calls
+			  "next_preset". The values used here seem too large for that.
+		0x34: According to emu3bm it's a 32-bit uint, which it calls
+			  "next_sample". The values used here seem too large for that.
+		0x38: According to emu3bm, the next 20 bytes are 5 32-bit uints. It
+			  calls them "parameters" or "BANK_PARAMETERS". If the second and
+			  third parameters, when added up, don't equal the fifth; emu3bm
+			  prints a checksum error.
+		0x4C: Bank name again. 16 bytes again, so it ends at 0x5B.
+		0x5C: Apparently another 32-bit uint, according to emu3bm. It calls this
+			  "selected_preset".
+		0x60: Apparently, there's another 3 32-bit uints (12 bytes total).
+			  emu3bm calls this "more_parameters". emu3bm prints the first
+			  and second parameters as "Current preset" and "Current sample".
+
+	Starting at 0x6C, there's a block of several 32-bit uints. Each one of them
+	represents an offset from 0x74A to which 0x1A6FE is added. To get the actual
+	addresses of the patches, you must subtract 0x1A6FE from these 32-bit uints
+	and add 0x74A (the address at which presets start). This explains why 0xFE
+	0xA6 0x01 seems to always appear at 0x6C. emu3bm calls 0x6C
+	"PRESET_SIZE_ADDR_START"; but they're not sizes, they're offsets from 0x74A.
+	"PRESET_OFFSETS_START" seems like a better name. This block seems to always
+	end at 0x1FB; which makes sense, given that that's 400 bytes from 0x6C
+	(4 bytes * 100 presets). This seems to usually be padded by repeating the
+	offsets of some of the patches. I suppose duplicate entries here should be
+	ignored. emu3bm doesn't seem to have a way of checking what the actual
+	number of presets is. Counting the number of unique values in this block
+	should suffice.
+
+	0x01FC seems to contain an offset similar to those used for patches. By
+	subtracting 0x1A6FE from it and adding 0x74A, you get the address
+	immediately before the first sample. emu3bm does mention there always being
+	"a 0x00 byte before the samples". This seems to be true most of the time. It
+	seems that, when the last patch ends in a non-zero byte, a zero byte is
+	added after it and before the first sample. If the last patch ends in a zero
+	byte, a different value is used for padding (I've seen 0x53); as is the case
+	with the UST bank. It's worth noting I've only observed a patch ending in 0
+	in the UST bank file, so I've only seen a non-zero value before the first
+	sample in the UST bank.
+
+	0x200 seems to always contain 4 zeroed-out bytes.
+
+	0x204 is the start of 99 32-bit uint entries (396 bytes) and ends at 0x38F.
+	These uints are offsets from the beginning of the sample section to which
+	0x400000 has been added. They always point to the byte right before a
+	sample's name starts. It seems there's also always a 0x00 byte before each
+	sample. Since one of the entries is superfluous; it appears that one of them
+	will always contain 0x400000 (which would result in an offset of 0) as
+	padding. Unused entries are zeroed out. It seems all used entries are always
+	grouped together at the start of the block; so as soon as a 0 entry is
+	reached one may skip to the start of the next section. The entries are
+	unordered. According to emu3bm, 0x400000 bytes (4MB) is the max sample size
+	this format supports. This would be in line with the EIII's stock 4MB sample
+	memory. It seems then that despite the 8MB memory expansion's existance,
+	samples larger than 4MB are not supported on the original EIII.
+
+	0x390 contains an offset from the start of the sample section to which
+	0x400000 has been added. The address resulting from that offset is the
+	address immediately after the last sample's end. It seems it's also always
+	0. This may be the end of the file, although sometimes there's some extra
+	data after this address.
+
+	
+	At 0x6E0 there's the following section:
+		0x6E0: 00 00 FF FF 00 00 00 FE FF FF 28 00 02 00 05 00
+		0x6F0: 55 6E 00 00 00 80 FF FF 00 00 00 FE FF FF 28 00
+		0x700: 02 00 05 00 55 6E 00 00 00 80 00 00 00 00 00 00
+	OR
+		0x6E0: 00 00 FF FF 04 00 00 F0 FF FF 28 00 02 00 05 00
+		0x6F0: 5B 5B 00 00 00 80 FF FF 00 00 00 FE FF FF 28 00
+		0x700: 02 00 05 00 5B 5B 00 00 00 80 00 00 00 00 00 00
+	
+
+	Starting at 0x074A there's preset (patch) data. Addresses here are offsets
+	from the start of a given patch.
+
+	Preset
+		0x00: Preset name. 16 bytes.
+		0x10: Real time controls. 12 bytes. The first 10 bytes are regular
+			  controllers.
+			  Sources are "Pitch control", "Mod control", "Pressure control",
+			  "Pedal control", "MIDI A control", "MIDI B control".
+			  Destinations are "Off", "Pitch", "VCF cutoff", "VCA level",
+			  "LFO -> Pitch", "LFO -> Cutoff", "LFO -> VCA", "Pan", "Attack",
+			  "Crossfade", "VCF NoteOn Q".
+			  For sources, 1 would be "Pitch control".
+			  For destinations, 0 would be "Off".
+			  Each source can only be assigned one destination.
+			  The way emu3bm handles this section makes it seem that any byte
+			  after a non-zero byte is the destination while the previous byte
+			  is the source, and that controllers can only be mapped in order
+			  from first to last.
+			  01 00 01 01 00 00 00 00 00 00 00 00 would turn off the pitch bend
+			  wheel, the 01 01 after 01 00 would do nothing. The last 2 bytes
+			  are the destinations for "Footswitch 1", and "Footswitch 2".
+			  These destinations are "Off", "Sustain", "Cross-switch", 5 unused
+			  entries, "Preset increment" and "Preset decrement". 0 would be
+			  "Off".
+			  emu3bm says the default should be
+			  01 00 00 02 00 00 00 00 00 00 01 08, but I've also seen
+			  01 00 00 02 00 00 00 00 00 01 08 00.
+			  I'm not sure what's going on. Both configurations would turn off
+			  the pitch bend and modulation wheels.
+			  With the first one, footswitch 1 gets routed to sustain and
+			  footswitch 2 gets routed to preset increment.
+			  With the second one, footswitch 1 gets routed to preset
+			  increment and footswitch 2 gets turned off; and the last
+			  01 byte is entirely useless.
+		0x1C: emu3bm calls this "unknown_0". 16 bytes.
+		0x2C: Pitch bend range. 0 through 36 (0x24).
+		0x2D: emu3bm calls this "unknown_1". 8 bytes.
+		0x35: N. of zones.
+		0x36: Zone mappings. 88 bytes. Those with a value of 0xFF are
+			  ignored.
+		0x8E: Zone entries. 4 bytes per entry. 1 entry per zone.
+
+		After the zone entries, a block of 48-byte entries begins (one for each
+		zone). These entries contain the parameters for the zones, amongst which
+		are AHDSR envelope settings which are 5 bytes long (one byte for each
+		part of the envelope). emu3bm sets their values to 0, 0, 0, 0x7F and 0
+		by default.
+
+		Immediately after the end of the 48-byte entries, if there's more
+		patches, the next patch begins.
+		
+		A patch's length is 142 + (n. of zones * 52) bytes.
+
+
+	Zone entry
+		0x00: Unknown, 2 bytes.
+		0x02: Primary zone, 8-bit uint.
+		0x03: Secondary zone, 8-bit uint.
+				
+		Primary zone and Secondary zone are indices to select from the patch's
+		defined zones. They are ignored if they are 0xFF.
+
+
+	Zone parameters
+		0x00: Root note.
+		0x01: Sample ID (LSB).
+		0x02: Sample ID (MSB), according to emu3bm.
+		0x03: emu3bm calls this "parameter_a". I assume it's unknown what it
+			  does. It sets it to 0x1F by default.
+		0x04: VCA envelope (AHDSR, 5 bytes).
+		0x09: emu3bm calls this "parameters_a2" and treats it as a char array of
+			  length 2. I assume it's unknown what these do. It sets these to
+			  0x41 and 0x00 by default.
+		0x0B: emu3bm calls this "lfo_variation". I assume it's a modulation
+			  setting. It sets this to 0 by default.
+		0x0C: Cutoff. emu3bm sets this to 0xEF by default.
+		0x0D: Q (resonance). 0 (E3B/EB3/E3X) or 0x80 (ESI) by default.
+		0x0E: emu3bm calls this "vcf_envelope_amount". Not sure what it does.
+			  Defaults to 0.
+		0x0F: VCF envelope (AHDSR, 5 bytes).
+		0x14: AUX envelope (AHDSR, 5 bytes). The AUX envelope is an EIII
+			  feature.
+		0x19: "aux_envelope_amount".
+		0x1A: AUX envelope dest.
+		0x1B: "vel_to_vca_level".
+		0x1C: "vel_to_vca_attack".
+		0x1D: "vel_to_vcf_cutoff".
+		0x1E: "vel_to_pitch".
+		0x1F: "vel_to_aux_env".
+		0x20: "vel_to_vcf_q".
+		0x21: "vel_to_vcf_attack".
+		0x22: "vel_to_sample_start".
+		0x23: "vel_to_vca_pan".
+		0x24: "lfo_to_pitch".
+		0x25: "lfo_to_vca".
+		0x26: "lfo_to_cutoff".
+		0x27: "lfo_to_pan".
+		0x28: "vca_level". emu3bm sets this to 0x7F by default.
+		0x29: "unknown_1".
+		0x2A: "unknown_2". emu3bm sets this to 0x40 by default.
+		0x2B: "unknown_3".
+		0x2C: "vca_pan". 0x40 (center) by default.
+		0x2D: VCF type and LFO shape. emu3bm sets this to 8 by default.
+			  The lower 3 bits are the LFO shape.
+			  Shapes are triangle, sine, sawtooth and square; where 0 would be
+			  triangle.
+			  The upper 5 bits control the VCF type.
+			  Types are "2 Pole Lowpass", "4 Pole Lowpass", "6 Pole Lowpass",
+			  "2nd Ord Hipass", "4th Ord Hipass", "2nd O Bandpass",
+			  "4th O Bandpass", "Contrary BandP", "Swept EQ 1 oct",
+			  "Swept EQ 2->1", "Swept EQ 3->1", "Phaser 1", "Phaser 2",
+			  "Bat-Phaser", "Flanger Lite", "Vocal Ah-Ay-Ee", "Vocal Oo-Ah",
+			  "Bottom Feeder", "ESi/E3x Lowpass" and "Unknown".
+		0x2E: "end1".
+		0x2F: "end2".
+
+		emu3bm has comments indicating each zone ends in FF 01 (end1 and end2,
+		respectively). I have also seen values of FF 00 (UST bank), FF 08 (UST
+		bank), FF 09, FF 81, FF 41, F7 01 and F7 05; however FF 01 seems to be
+		the most common value.
+
+
+	After the last patch's data ends, the sample section starts. Samples have
+	the following structure:
+
+	Sample
+		0x00: Sample name, 16 chars.
+		0x10: Unknown, 4 bytes. emu3bm treats this as a 32-bit uint but it
+			  always ignores it or sets it to 0.
+		0x14: Left channel start offset, uint32. Offset from the start of the
+			  sample header to the first padding byte before the left channel's
+			  audio data.
+		0x18: Right channel start offset, uint32. Offset from the start of the
+			  sample header to the first padding byte before the right channel's
+			  audio data. On mono samples, I've seen this have the same value as
+			  the left channel's; but emu3bm sets it to 0. I suppose both are
+			  fine.
+		0x1C: Left channel end offset, uint32. Offset from the start of the
+			  sample header to the third byte of padding after the left channel.
+		0x20: Right channel end offset, uint32. Offset from the start of the
+			  sample header to the third byte of padding after the right
+			  channel. I've also seen mono samples contain the same data here as
+			  in the left channel's but emu3bm also sets this to 0 in that case.
+			  Again, I assume both are fine.
+		0x24: Left channel loop start offset, uint32. Offset from the start of
+			  the sample's header to the first sample in the loop. According to
+			  emu3bm, the way these offsets are stored is
+			  (sample_num + 2) * 2 + header_length.
+		0x28: Right channel loop start offset, uint32. Contains either a copy of
+			  the left channel's (mono samples), or
+			  frames * 2 + left_channel_offset_start + 8 (stereo samples). I
+			  assume "frames" refers to the total sample count of one channel
+			  and 8 is because of the 4 padding bytes at the end of the left
+			  channel and the 4 padding bytes at the start of the right channel.
+		0x2C: Left channel loop end offset, uint32. Offset from the start of the
+			  sample's header to the last sample in the loop. According to
+			  emu3bm, the way these offsets are stored is
+			  (sample_num + 1) * 2 + header_length.
+		0x30: Right channel loop end offset, uint32. Contains either a copy of
+			  the eigth paramter (mono samples), or
+			  frames * 2 + seventh_param + 8 (stereo samples).
+		0x34: Sample rate. A 32-bit uint.
+		0x38: Sample format. A 32-bit bitfield. Stores information on whether
+			  the sample is mono or stereo and how it loops. emu3bm has 7 masks,
+			  5 for mono/stereo and 2 for loops. 0x00300001, 0x00500000 and
+			  0x0030FE02 indicate mono samples. Given that the third mask is
+			  called "MONO_SAMPLE_3X", I'm going to assume that one's usually
+			  used on E3X samples but not E3B/EB3. I have encountered a sample
+			  which uses the 0x00500000 mask that seems to lack proper metadata
+			  for the left channel (at least in regard to the channel start
+			  offset). I think 0x00300000 indicates a sample which treats its
+			  only channel as a left channel and 0x00500000 indicates a sample
+			  handles its only channel as a right channel. 0x00700001,
+			  0x00700000 indicate stereo samples. The files I've looked at also
+			  seem to use 0x60FE9D to mark stereo samples. It would seem that
+			  whether a sample is mono or stereo is controlled by the two middle
+			  bits of the upper nibble of the 3rd byte from the bottom. If only
+			  one of them is high, it's a mono sample. 0x00010000 and 0x00080000
+			  are called "LOOP" and "LOOP_RELEASE". These two may be used
+			  together.
+		0x3C: emu3bm calls this "more_parameters". 8 32-bit uints. It sets all
+			  of these to 0.
+		0x5C: Start of the audio data. It seems to be padded with 4 zeroed bytes
+			  at the start and 4 more at the end of each channel.
+
+		If the sample is mono, one of the channels' audio data is skipped
+		completely. Each sample starts immediately after the end of the
+		previous' audio data.
+		
+		I'm gonna assume it's all uncompressed 16-bit PCM audio.
+
+
+.e3x/.esi
+	The E3X and ESI formats are very similar to the E3B/EB3 format and nearly
+	identical to each other. They have different magic:
+
+	Magic
+		45 4D 55 4C 41 54 4F 52 20 33 58 20 20 20 20 00	(EMULATOR 3X    )
+
+	OR
+		45 4D 55 20 53 49 2D 33 32 20 76 33 20 20 20 00 (EMU SI-32 v3   )
+
+	Preset offsets start at 0x17CA and do not have an offset of their own.
+	Preset data starts at 0x2B72. The maximum number of presets is raised from
+	100 to 256.
+
+	Once again; immediately following the preset offsets, there's one last
+	offset to the byte before the sample section. This has no offset of its own,
+	much like the preset offsets.
+
+	Sample offsets start at 0x1BD2 and retain the 0x400000 offset. The maximum
+	amount of samples is raised from 99 to 999.
+
+	The preset format should be mostly the same; however, there's something
+	afoot with zone parameters. On the "Vintage Keys X" (E3X) bank, there seems
+	to be more entries than the amount of zones the preset indicates. However;
+	on "VK+ InstrumentsX" (ESi), the number of zone parameters entries matches
+	the number of zones the preset indicates. After reversing the EIV's bank
+	format, it seems to me that this might be related to preset linking.
+
+	On ESI presets, resonance (Q) ranges from 0x80 to 0xFF.
+
+	A comment from emu3bm claims that on E3X and ESI banks the first sample is
+	always preceded by 0xEE. I haven't seen that. However, I have seen 0x20
+	(which would be an ASCII whitespace), 0x42 ("B", coincidentally also the
+	first character of the first sample's name), and 0x4D ("M").

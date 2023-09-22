@@ -1,0 +1,581 @@
+EIV/E4X/E4X Ultra bank data (.e4b). The format's changed a bunch compared to the
+EIII formats. It's an IFF format.
+Each bank can hold up to 1000 samples and 1000 presets. Each preset can have up
+to 256 voices.
+
+Big-endian.
+
+File type identifiers are "E4B0" and "E4Br".
+
+FourCCs are as follows:
+	"TOC1" identifies the TOC.
+	"E4Ma" identifies multimaps.
+	"E4P1" identifies presets.
+	"E3S1" identifies samples.
+
+E4B files will usually contain banks, but they can also contain raw presets (and
+their samples) or even just samples.
+
+Immediately after the file type identifier, the first chunk starts. On full bank
+files, the first chunk is the TOC. On preset or sample files, the first chunk
+will be the preset or sample; respectively. Preset files may also contain
+samples after the preset's data.
+
+Being based on IFF, chunks will have the following structure:
+	0x00: FourCC, 4 chars.
+	0x04: Block size starting from next byte. 32-bit uint.
+	0x08: Data.
+			
+Furthermore, all chunks but the TOC will also contain a 16-bit index immediately
+after the chunk size. Indices count separately for different chunk types.
+Multimap and preset indices are 0-based, sample indices are 1-based.
+
+For multimaps, the index always seems to be 0 and the length seems to always be
+0x100 (256).
+
+Chunk order seems to be:
+	TOC (if bank)
+	Multimap (if bank)
+	Presets
+	Samples
+
+I suppose the multimap may also not exist if a bank has been created and saved
+while in a mode other than multi.
+	
+The TOC's data is made up of 32-byte blocks. Each TOC block has the following
+structure:
+
+TOC1 entry
+	0x00: FourCC. 4 chars. Can be E4Ma, E4P1 or E3S1.
+	0x04: Data size. 32-bit uint. Sizes seem to be from the start of the data,
+		  not from the identifier; so it's just the same as the chunk's
+		  corresponding IFF data size.
+	0x08: Chunk address. 32-bit uint.
+	0x0C: Index. 16-bit uint.
+	0x0E: Name. 16 chars. On all multimaps I've seen it's "Multimap" followed by
+		  a null character followed by what I presume to be junk.
+	0x1E: 2 padding bytes. It seems this alternates betwen 0x00 0x00 and 0x00
+		  0xFF.
+
+	Immediately after each TOC entry, the next one starts.
+
+
+Multimaps are made out of the common E4 bank data followed by a series of
+entries. Each entry corresponds to a MIDI channel. Multimaps always seem to
+contain 32 entries, even on banks created on E4s without the second MIDI
+interface.
+
+Multimap entry
+	0x00: Preset index, 16-bit uint. This is the preset the corresponding MIDI
+		  channel will use.
+	0x02: Volume, 8-bit uint (actually 7-bit). Works much like the MIDI volume
+		  parameter (0, 127). Default 127.
+	0x03: Pan, 8-bit int. Works much like the MIDI pan parameter (-64, 63);
+		  however, it's stored as a signed 8-bit int. Default 0.
+	0x04: Submix, 8-bit enum. Default 0xFF (voice).
+	0x05: Unknown, 3 bytes.
+
+
+Submix
+	main,
+	sub1,
+	sub2,
+	sub3,
+	voice = 255
+
+	The submix enum is reused for voices. The "voice" setting is only used in
+	multimaps to inherit a preset's voice's submix setting.
+
+
+Ignoring the common E4 chunk data, presets contain a couple of common variables
+and a series of voice entries. These voice entries make up the vast majority of
+the preset.
+
+Preset
+	0x0A: Name, 16 chars.
+	0x1A: Unknown, 3 bytes. The second byte seems to always be 0x52. The other
+		  two bytes seem to always be 0.
+	0x1D: Voice count, 8-bit uint. Each preset can hold up to 256 voices. I am
+		  unsure how this interacts with links, as each link generates another
+		  voice entry (and increases this count) and I did not think to test
+		  what would happen if one were to try and add a link to a preset with
+		  256 voices.
+	0x1E: Unknown, 4 bytes. Seems to always be 0.
+	0x22: Transpose, 8-bit int. +-24. Default 0.
+	0x23: Volume, 8-bit int. -96, +10. Default 0.
+	0x24: Unknown, 28 bytes. Most of it seems to always be 0. The first byte
+		  seems to always be 0x78. The 25th byte seems to always be 0x52. The
+		  26th byte seems to always be 0x23. The last byte seems to always be
+		  0x7E. The fifth byte was 0 on my test presets, but was 0xB on a preset
+		  I inspected. The 14th byte was 4 on my test presets, but was 5 on a
+		  preset I inspected. The 16th byte was 1 on my test presets, but was 0
+		  on a preset I inspected.
+	0x40: Initial values for controllers A through D. 0, 127. FF = off. Default
+		  off.
+	0x44: Master effects A parameters.
+	0x4C: Master effects B parameters.
+	0x54: Unknown, 8 bytes. Seems to always be 0.
+	0x5C: Voices.
+				
+
+Effects parameters
+	0x00: Effect number, 8-bit uint.
+	0x01: Parameter 1, 8-bit uint. Varies depending on effect.
+	0x02: Parameter 2, 8-bit uint. Varies depending on effect.
+	0x03: Parameter 3, 8-bit uint. Effects B send to A on effects A's
+		  parameters. Varies depending on effect for effects B.
+	0x04: Main mix send, 8-bit uint.
+	0x05: Submix 1 send, 8-bit uint.
+	0x06: Submix 2 send, 8-bit uint.
+	0x07: Submix 3 send, 8-bit uint.
+
+
+Voice
+	0x000: Size, 16-bit uint.
+	0x002: Sample count, 8-bit uint.
+	0x003: Group number, 8-bit uint. 0 is group 1, etc.
+	0x004: Unknown, 8 bytes. Seems to always be 0.
+	0x00C: Low note, 8-bit uint. 0, 127. Default 0 (C-2).
+	0x00D: Low note fade, 8-bit uint. 0, 127. Default 0.
+	0x00E: High note fade, 8-bit uint. 0, 127. Default 0.
+	0x00F: High note, 8-bit uint. 0, 127. Default 127 (G8).
+	0x010: Low velo, 8-bit uint. 0, 127. Default 0.
+	0x011: Low velo fade, 8-bit uint. 0, 127. Default 0.
+	0x012: High velo fade, 8-bit uint. 0, 127. Default 0.
+	0x013: High velo, 8-bit uint. 0, 127. Default 127.
+	0x014: Low RT, 8-bit uint. 0, 127. Default 0.
+	0x015: Low RT fade, 8-bit uint. 0, 127. Default 0.
+	0x016: High RT fade, 8-bit uint. 0, 127. Default 0.
+	0x017: High RT, 8-bit uint. 0, 127. Default 127.
+	0x018: Link, boolean.
+	0x019: Assign group, enum.
+	0x01A: Delay, 16-bit uint. 0, 10000 (ms).
+	0x01C: Link preset index, 16-bit. The preset a link links to, if the voice
+		   entry is a link. Unused otherwise. When link is external, the lowest
+		   7 bits are the patch number and the next 4 bits are the bank number.
+		   The other 5 bits are unused.
+	0x01E: Unknown, 1 byte. Seems to always be 0.
+	0x01F: Delay start offset, 8-bit uint. 0, 127.
+	0x020: Transpose, 8-bit int. +- 24 (semitones). Default 0.
+	0x021: Coarse tune, 8-bit int. -72, +24. Default 0.
+	0x022: Fine tune, 8-bit int. +-64. Default 0.
+	0x023: Glide rate, 8-bit uint.
+	0x024: Non-transpose, boolean. Default false.
+	0x025: Solo mode, enum. Default off.
+	0x026: Unknown, 1 byte. Usually 0, but I've also seen 1.
+	0x027: Chorus stereo width, 8-bit int. 0, -128. Default 0. Mapped to 100%
+		   through 0%.
+	0x028: Chorus amount, 8-bit uint. 0, 127. Default 0. Mapped to off (0)
+		   through 100%.
+	0x029: Unknown, 1 byte. Seems to always be 0.
+	0x02A: Chorus initial ITD, 8-bit int. +-32. Default 0. Mapped to +- 1.451ms.
+	0x02B: Unknown, 2 bytes. Seems to always be 0.
+	0x02D: Link MIDI filter bitfield, 3 bytes.
+	0x030: Latch mode, boolean.
+	0x031: Unknown, 2 bytes. The first byte seems to be 0x80 by default. I've
+		   also seen it being 0.
+	0x033: Glide curve, 8-bit uint.
+	0x034: Volume, 8-bit int. -96, +10 (dB, I assume). Default 0.
+	0x035: Pan, 8-bit int. -64, +63 (like MIDI). Default 0.
+	0x036: Submix, enum. Default 0 (main).
+	0x037: Amp envelope depth, 8-bit uint. 0, 16. -96dB, -48dB (3dB per val).
+		   Default (-96 dB).
+	0x038: Filter, enum.
+	0x039: Unknown, 1 byte. Seems to always be 0.
+	0x03A: Filter parameter 1, 8-bit uint.
+	0x03B: Filter parameter 2, 8-bit uint.
+	0x03C: Unknown, 2 bytes. Seems to always be 0.
+	0x03E: Filter parameter 3, 8-bit uint.
+	0x03F: Filter parameter 4, 8-bit uint.
+	0x040: Filter parameter 5, 8-bit uint.
+	0x041: Filter parameter 6, 8-bit uint.
+	0x042: Filter parameter 7, 8-bit uint.
+	0x043: Filter parameter 8, 8-bit uint.
+	0x044: Unknown, 40 bytes. Seems to always be all 0s.
+	0x06C: Amp envelope.
+	0x078: Unknown, 2 bytes. The first byte seems to always be 3.
+	0x07A: Filter envelope.
+	0x086: Unknown, 2 bytes. The first byte seems to always be 3.
+	0x088: LFO envelope.
+	0x094: Unknown, 2 bytes. The first byte seems to always be 3.
+	0x096: LFO1 parameters.
+	0x09B: Unknown, 3 bytes. The middle byte seems to be 1 by default. I've also
+		   seen it being 0.
+	0x09E: LFO2 parameters.
+	0x0A3: Unknown, 2 bytes. Seems to always be 0.
+	0x0A5: Lag processor 1 setting, 8-bit uint.
+	0x0A6: Unknown, 1 byte. Seems to always be 0.
+	0x0A7: Lag processor 2 setting, 8-bit uint.
+	0x0A8: Unknown, 20 bytes. Seems to always be 0.
+	0x0BC: Cords. 24 entries. Might be 16 entries in versions of EOS prior to 4.
+	0x11C: Sample zone entries.
+
+	Links use the assign group to signal external linking, with any non-zero
+	value indicating an external link. The value itself indicates the MIDI
+	channel.
+
+	What filter parameters are and do depends on the filter.
+	Parameter 1 can be cutoff, in which case it is 0 through 255 mapped to 57Hz
+	through 20KHz; default 255.
+	Parameter 2 can be resonance, in which case it is 0 through 127.
+
+
+Envelope
+	0x00: Attack1 rate. 0, 127. Default 0.
+	0x01: Attack1 level. 0, 127. Default 0. Mapped to 0% through 100%.
+	0x02: Attack2 rate. 0, 127. Default 0.
+	0x03: Attack2 level. 0, 127. Default 127. Mapped to 0% through 100%.
+	0x04: Decay1 rate. 0, 127. Default 0.
+	0x05: Decay1 level. 0, 127. Default 126. Mapped to 0% through 100%.
+	0x06: Decay2 rate. 0, 127. Default 0.
+	0x07: Decay2 level. 0, 127. Default 127. Mapped to 0% through 100%.
+	0x08: Release1 rate. 0, 127. Default 20.
+	0x09: Release1 level. 0, 127. Default 0. Mapped to 0% through 100%.
+	0x0A: Release2 rate. 0, 127. Default 0.
+	0x0B: Release2 level. 0, 127. Default 0. Mapped to 0% through 100%.
+
+
+Filter
+	lowpass_4_pole,
+	lowpass_2_pole,
+	lowpass_6_pole,
+	highpass_2nd_ord = 8,
+	highpass_4th_ord,
+	bandpass_2nd_ord = 16,
+	bandpass_4th_ord,
+	bandpass_contrary,
+	swept_eq_1_octave = 32,
+	swept_eq_2_1_octave,
+	swept_eq_3_1_octave,
+	phaser1 = 64,
+	phaser2,
+	bat_phaser,
+	flanger_lite = 72,
+	vocal_ah_ay_ee = 80,
+	vocal_oo_ah,
+	dual_eq_morph = 96,
+	dual_eq_lowpass_morph,
+	dual_eq_morph_xpressn,
+	peak_shelf_morph = 104
+
+
+LFO
+	0x00: Rate, 8-bit uint. 0, 127. Default 64 (4.12). Mapped from 0.08 through
+		  18.01.
+	0x01: Shape, enum. Default 0 (triangle).
+	0x02: Delay, 8-bit uint. Default 0.
+	0x03: Variation, 8-bit uint. Default 0. Mapped to 0% through 100%.
+	0x04: Sync, enum. Actually a boolean. Default 0 (keysync).
+
+
+Shape
+	triangle,
+	sine,
+	sawtooth,
+	square,
+	pulse_33,
+	pulse_25,
+	pulse_16,
+	pulse_12,
+	octaves,
+	fifth_oct,
+	sus4_trip,
+	neener,
+	sine_1_2,
+	sine_1_3_5,
+	sine_noise,
+	hemi_quaver,
+	random = 255
+
+
+Sync
+	keysync,
+	freerun
+
+	It's actually a boolean. I just noted it like this to keep track of the
+	names.
+
+
+Solo mode
+	off,
+	multiple_trigger,
+	melody_last,
+	melody_low,
+	melody_high,
+	synth_last,
+	synth_low,
+	synth_high,
+	fingered_glide
+
+
+Assign group
+	poly_all,
+	poly_16A,
+	poly_16B,
+	poly_8A,
+	poly_8B,
+	poly_8C,
+	poly_8D,
+	poly_4A,
+	poly_4B,
+	poly_4C,
+	poly_4D,
+	poly_2A,
+	poly_2B,
+	poly_2C,
+	poly_2D,
+	monoA,
+	monoB,
+	monoC,
+	monoD,
+	monoE,
+	monoF,
+	monoG,
+	monoH,
+	monoI
+
+
+Cord
+	0x00: Source, enum.
+	0x01: Destination, enum.
+	0x02: Amount, 8-bit int. +-127. Mapped to +-100%.
+	0x03: Unknown, 1 byte.
+
+
+Source
+	off,
+	xfade_rnd = 4,
+	key_add = 8,
+	key_to_zero,
+	vel_add,
+	vel_to_zero,
+	vel_sub,
+	release_vel,
+	gate,
+	pitch_wheel = 16,
+	mod_wheel,
+	pressure,
+	pedal,
+	MIDI_A,
+	MIDI_B,
+	foot_sw1,
+	foot_sw2,
+	foot_sw1_flip_flop,
+	foot_sw2_flip_flop,
+	MIDI_vol,
+	MIDI_pan,
+	MIDI_C = 32,
+	MIDI_D,
+	MIDI_E,
+	MIDI_F,
+	MIDI_G,
+	MIDI_H,
+	thumb,
+	thumb_flip_flop,
+	key_glide = 48,
+	vol_env_add = 72,
+	vol_env_to_zero,
+	vol_env_sub,
+	fil_env_add = 80,
+	fil_env_to_zero,
+	fil_env_sub,
+	aux_env_add = 88,
+	aux_env_to_zero,
+	aux_env_sub,
+	lfo1_to_zero = 96,
+	lfo1_add,
+	white_noise,
+	pink_noise,
+	k_rand1,
+	k_rand2,
+	lfo2_to_zero = 104,
+	lfo2_add,
+	lag0_in,
+	lag0,
+	lag1_in,
+	lag1,
+	clock_double = 144,
+	clock,
+	clock_half,
+	clock_quarter,
+	clock_eigth,
+	clock_sixteenth,
+	dc_offset = 160,
+	sum_amp,
+	switch,
+	abs_val,
+	diode,
+	flip_flop,
+	quantizer,
+	gain_4x
+
+
+Destination
+	off,
+	key_sust = 8,
+	fine_pitch = 47,
+	pitch,
+	glide,
+	chorus_amount,
+	chorus_position_ITD,
+	sample_start,
+	sample_loop,
+	sample_retrigger,
+	filter_freq = 56,
+	filter_reso,
+	amp_vol = 64,
+	amp_pan,
+	amp_xfd,
+	vol_env_rates = 72,
+	vol_env_atk,
+	vol_env_dcy,
+	vol_env_rls,
+	fil_env_rates = 80,
+	fil_env_atk,
+	fil_env_dcy,
+	fil_env_rls,
+	fil_env_trggr = 86,
+	aux_env_rates = 88,
+	aux_env_atk,
+	aux_env_dcy,
+	aux_env_rls,
+	aux_env_trggr = 94,
+	lfo1_rate = 96,
+	lfo1_trigger,
+	lfo2_rate = 104,
+	lfo2_trigger,
+	lag0_in,
+	lag1_in = 108,
+	amp_sum = 161,
+	switch,
+	abs_val,
+	diode,
+	flip_flop,
+	quantizer,
+	gain_4x,
+	cord0_amount,
+	cord1_amount,
+	cord2_amount,
+	cord3_amount,
+	cord4_amount,
+	cord5_amount,
+	cord6_amount,
+	cord7_amount,
+	cord8_amount,
+	cord9_amount,
+	cord10_amount,
+	cord11_amount,
+	cord12_amount,
+	cord13_amount,
+	cord14_amount,
+	cord15_amount,
+	cord16_amount,
+	cord17_amount,
+	cord18_amount,
+	cord19_amount,
+	cord20_amount,
+	cord21_amount,
+	cord22_amount,
+	cord23_amount
+
+
+Link MIDI flags masks
+	none,
+	pitch = 1,
+	mod = 2,
+	pressure = 4,
+	pedal = 8,
+	controller_A = 16,
+	controller_B = 32,
+	controller_C = 64,
+	controller_D = 128,
+	foot_switch1 = 4096,
+	foot_switch2 = 8192,
+	thumby_button = 262144
+
+	Do keep in mind these are treating "Link MIDI flags" as a big-endian
+	unsigned 24-bit integer.
+
+
+Sample zone
+	0x00: Low note, 8-bit uint.
+	0x01: Low note fade, 8-bit uint.
+	0x02: High note fade, 8-bit uint.
+	0x03: High note, 8-bit uint.
+	0x04: Low velo, 8-bit uint.
+	0x05: Low velo fade, 8-bit uint.
+	0x06: High velo fade, 8-bit uint.
+	0x07: High velo, 8-bit uint.
+	0x08: Sample index, 16-bit uint.
+	0x0A: Fine tune, 16-bit int.
+	0x0C: Root note, 8-bit uint. 0, 127. Default 48 (C4).
+	0x0D: Volume, 8-bit int.
+	0x0E: Pan, 8-bit int.
+	0x0F: Unknown, 7 bytes.
+
+
+The sample format seems unchanged from the EIII's, which is	quite fitting
+considering the fourCC. As a quirk, sample-specific variables are still
+little-endian.
+
+Sample
+	0x00: Sample name, 16 chars.
+	0x10: Unknown, 4 bytes. emu3bm treats this as a 32-bit uint but it always
+		  ignores it or sets it to 0.
+	0x14: Left channel start offset, uint32. Offset from the start of the sample
+		  header to the first padding byte before the left channel's audio data.
+	0x18: Right channel start offset, uint32. Offset from the start of the
+		  sample header to the first padding byte before the right channel's
+		  audio data. On mono samples, I've seen this have the same value as the
+		  left channel's; but emu3bm sets it to 0. I suppose both are fine.
+	0x1C: Left channel end offset, uint32. Offset from the start of the sample
+		  header to the third byte of padding after the left channel.
+	0x20: Right channel end offset, uint32. Offset from the start of the sample
+		  header to the third byte of padding after the right channel. I've also
+		  seen mono samples contain the same data here as in the left channel's
+		  but emu3bm also sets this to 0 in that case. Again, I assume both are
+		  fine.
+	0x24: Left channel loop start offset, uint32. Offset from the start of the
+		  sample's header to the first sample in the loop. According to emu3bm,
+		  the way these offsets are stored is
+		  (sample_num + 2) * 2 + header_length.
+	0x28: Right channel loop start offset, uint32. Contains either a copy of the
+		  left channel's (mono samples), or
+		  frames * 2 + left_channel_offset_start + 8 (stereo samples). I assume
+		  "frames" refers to the total sample count of one channel and 8 is
+		  because of the 4 padding bytes at the end of the left channel and the
+		  4 padding bytes at the start of the right channel.
+	0x2C: Left channel loop end offset, uint32. Offset from the start of the
+		  sample's header to the last sample in the loop. According to emu3bm,
+		  the way these offsets are stored is
+		  (sample_num + 1) * 2 + header_length.
+	0x30: Right channel loop end offset, uint32. Contains either a copy of the
+		  eigth paramter (mono samples), or
+		  frames * 2 + seventh_param + 8 (stereo samples).
+	0x34: Sample rate. A 32-bit uint.
+	0x38: Sample format. A 32-bit bitfield. Stores information on whether the
+		  sample is mono or stereo and how it loops. emu3bm has 7 masks, 5 for
+		  mono/stereo and 2 for loops. 0x00300001, 0x00500000 and 0x0030FE02
+		  indicate mono samples. Given that the third mask is called
+		  "MONO_SAMPLE_3X", I'm going to assume that one's usually used on E3X
+		  samples but not E3B/EB3. I have encountered a sample which uses the
+		  0x00500000 mask that seems to lack proper metadata for the left
+		  channel (at least in regard to the channel start offset). I think
+		  0x00300000 indicates a sample which treats its only channel as a left
+		  channel and 0x00500000 indicates a sample handles its only channel as
+		  a right channel. 0x00700001, 0x00700000 indicate stereo samples. The
+		  files I've looked at also seem to use 0x60FE9D to mark stereo samples.
+		  It would seem that whether a sample is mono or stereo is controlled by
+		  the two middle bits of the upper nibble of the 3rd byte from the
+		  bottom. If only one of them is high, it's a mono sample. 0x00010000
+		  and 0x00080000 are called "LOOP" and "LOOP_RELEASE". These two may be
+		  used together.
+	0x3C: emu3bm calls this "more_parameters". 8 32-bit uints. It sets all of
+		  these to 0.
+	0x5C: Start of the audio data. It seems to be padded with 4 zeroed bytes at
+		  the start and 4 more at the end of each channel.
+
+	If the sample is mono, right channel audio data is skipped completely. Each
+	sample starts immediately after the end of the previous' audio data.
+		
+	I'm gonna assume it's all uncompressed 16-bit PCM audio.

@@ -1,0 +1,93 @@
+S-550/W-30 HDDs and CDs. L-CD1 library. Can only be loaded by the S-550, W-30
+and S-7XX.
+
+512-byte blocks.
+Big-endian.
+
+Contains S-550 diskette images, minus the header and OS. The manual calls these
+"areas".
+
+These "images" contain more sample data than regular diskette images, 864KB
+instead of the usual 648KB.
+As it turns out, it's the original 12-bit sample data; which has been converted
+into 16-bit little-endian signed PCM audio.
+
+HDD header
+	0x00: Magic, 16 chars. "* ROLAND S-550 *".
+	0x10: Padding. Either 0xFFs or zeroes.
+
+CD header
+	Same as the HDD header plus
+	0x20: Text, 224 chars.
+
+
+After the header (0x20 for HDD, 0x100 for CD) starts the directory list.
+
+HDD directory
+	0x00: Name, 16 chars.
+	0x10: Block address, uint32.
+	0x14: Block count, uint32.
+	0x18: Unknown, 1 byte. Probably dir type.
+	0x19: Padding, 7 bytes.
+
+CD directory
+	Same as HDD directory but
+	0x19: Unknown, 1 byte. Probably the top byte of the file count.
+	0x1A: File count, uint8. Probably actually uint16.
+	0x1B: Padding, 5 bytes.
+
+This directory list can probably take up the rest of the first block.
+			
+On hard drives, I've only ever seen two types of directories: "System Directory"
+(0x20) and "Sound Directory " (0x40).
+			
+On CDs, I've seen three types of directories: "Instrument Group" (0x48),
+"map1 Instrument " (0x4A) and "Sound Directory " (0x40).
+
+
+The one we care about is the sound directory, which contains the file entries
+for the areas.
+
+Area file entry
+	0x00: Name, 48 chars.
+	0x30: Block address, uint32.
+	0x34: Block count, uint32.
+	0x38: Unknown, 1 byte. Probably file type. 0x41 for area files.
+	0x39: Only on CDs; instrument group index, 1 byte.
+	0x3A: Padding, 6 bytes.
+
+	Again, each area is an S-550 diskette image; minus the header and OS data.
+
+	On CDs only; immediately after the end of each area, there seems to be some
+	sort of footer. This footer is 0x400 bytes long and does not count as part
+	of any areas. It seems like this "footer" might actually be a partial area
+	file list, with the preceding area as the first entry.
+	On L-CD1, these footers only contain the file entry for the preceding area.
+	The block adresses in these entries do not line up with their counterparts
+	from the sound directory and are incorrect.
+	On other CD images I've examined, these footers do contain entries for other
+	areas. These entries seem to contain correct block addresses.
+
+
+Instrument groups are a series 32-char text entries, one after the other. Each
+one of these is the name of a group. Areas are assigned to groups throught their
+instrument group index (0-based).
+
+
+Maps are arrays of uint16s. I have no idea how these actually work.
+
+
+The system directory contains entries similar to those in the sound directory.
+However, the name's filled with 0x2D ("-") and either there's no file type byte
+or it's 0xFF.
+
+System files looked fairly empty to me, but I did not check thoroughly. I assume
+they're supposed to contain the S-550's OS. I don't know why there's 4 of them
+on all images I've checked.
+
+Strangely, the last system file seems to overlap with the first area on all HDD
+images I have checked. Specifically, the last system file spans 0x500 blocks
+starting from block 0x1000; so it would end at the end of block 0x14FF. The
+first area is listed as starting at block 0x14F8, which it does. This means that
+the last 8 blocks in the last system file are actually the first 8 block of the
+first area. I'm not sure if this is intended.
