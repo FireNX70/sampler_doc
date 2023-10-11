@@ -516,7 +516,7 @@ Sample zone
 
 The sample format seems unchanged from the EIII's, which is	quite fitting
 considering the fourCC. As a quirk, sample-specific variables are still
-little-endian.
+little-endian. However, the audio data is now big-endian.
 
 Sample
 	0x00: Sample name, 16 chars.
@@ -578,4 +578,4 @@ Sample
 	If the sample is mono, right channel audio data is skipped completely. Each
 	sample starts immediately after the end of the previous' audio data.
 		
-	I'm gonna assume it's all uncompressed 16-bit PCM audio.
+	It's all uncompressed 16-bit big-endian PCM audio.
