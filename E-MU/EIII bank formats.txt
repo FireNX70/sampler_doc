@@ -281,7 +281,7 @@ Investigate preset linking and unknown sections.
 		completely. Each sample starts immediately after the end of the
 		previous' audio data.
 		
-		I'm gonna assume it's all uncompressed 16-bit PCM audio.
+		It's all uncompressed 16-bit little-endian PCM audio.
 
 
 .e3x/.esi
