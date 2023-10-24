@@ -21,7 +21,18 @@ Partial parameters at 0x1D5800.
 Sample parameters at 0x255800.
 Audio data starts at 0x2B5800.
 
+
 The header is the same as in the floppy format.
+
+Header
+	0x00: Padding, 4 bytes.
+	0x04: Machine name, 10 chars.
+	0x0E: Padding, 2 bytes.
+	0x10: Text, 80 chars. Sys. ver, copyright, etc.
+
+	The text can be used to tell diskettes and HDDs apart. Diskettes should
+	contain "HardDisk" (usually followed by a space, not a null char) at 0x29.
+
 
 TOC
 	0x00: Disk name, 16 chars.
@@ -32,6 +43,7 @@ TOC
 	0x1A: Partial count, uint16.
 	0x1C: Sample count, uint16.
 	0x1E: Padding, 2 bytes.
+
 
 All disks seem to be padded with 0xFF from 0x11E to 0x3FF, but P05 has
 00 08 D1 E6 00 00 02 00 00 00 at 0x200.
@@ -44,3 +56,52 @@ are. It's divided into blocks separated by several zeroed out bytes.
 
 Another section starts at (0x49470, P06) (0x493C0, P08). This section seems to
 contain some strings.
+
+
+List entry
+	0x00: Name, 16 chars.
+	0x10: Element type, 1 byte.
+	0x11: Unknown, 1 byte. Usually 0.
+	0x12: Unknown, 6 bytes. Contains a sequence of values like
+		  N+2 0x8X N 0x8X N+1 Y (ex. 0x02 0x80 0x00 0x80 0x01 0X00). The
+		  sequence's N value grows by 1 with each entry. 0x8X and Y increase
+		  like so 0xFF 0x80 0xFD 0x80 0xFE 0x00, 0x00 0x81 0xFE 0x80 0xFF 0x01,
+		  0x02 0x81 0x00 0x81 0x01 0x01.
+		  The first entry in a list has 0x01 0x80 0xFF 0xFF 0x00 0x00 instead.
+		  The last entry in a list has the sequence 0xFF 0xFF N 0x8X N+1 Y.
+		  I don't know if it's some sort of convoluted index system or what it's
+		  really supposed to do.
+	0x18: Unknown, 3 bytes. Seems to always be 0.
+	0x1B: Unknown, 1 byte. Seems to be used by performances. Related to bank
+		  select?
+	0x1C: Start segment, 16-bit uint. Only used by samples.
+	0x1F: Segment count, 16-bit uint. Used by pretty much everything.
+
+	Element types
+		volume = 0x40,
+    	performance,
+    	patch,
+    	partial,
+    	sample
+
+Volume (256B)
+	0x00: Name, 16 chars.
+	0x10: Unknown, 16 bytes. Seems to always be 0.
+	0x20: Seems to hold 16-bit indices for performances. There's space for 112
+		  entries.
+
+
+Performances and patches seem to be identical to the diskette format with an
+extra 256B section appended. This section seems to contain 16-bit indices, which
+I assume refer to patches and partials respectively. This makes sense as the
+patch and partial maps from performances and patches only use 8-bit indices,
+which would not be enough for the capacity of the HDD/CD format.
+
+The maps do not seem to use indices respective to these. These indices are
+sometimes identical to the map's. I'm not sure exactly how they're meant to work
+together.
+
+
+Partials and samples seem to be identical to the diskette format. Specifically
+for samples, I suppose the segment indices and counts from the sample list
+override the values held by the sample parameters (at least for loading).
