@@ -9,15 +9,19 @@ Known to use pre-emphasis.
 Machine name is "S770 MR25A".
 
 I have partially figured out the DSHD format. I do not have any disk images for
-the DSDD one. I assume it's the same but cut down. I have yet to figure out the
-individual data structures (performances, patches, etc.).
+the DSDD one. I assume it's the same but cut down.
+
+I have partially figured out the data structures (performances, patches, etc.)
+but there's still some work to be done. What's documented here relating to data
+structures comes in part from using Awave Studio and I do not own an S-7XX, so
+data gathered with actual hardware should take priority over what's here.
 
 A DSHD disk has slots for 1 volume, 64 performances, 128 patches, 256 partials
 and 512 samples.
 
 The S-770's manual's figures for the sampler's own memory match these, except
 for the partial count where it claims to have 255 slots instead of 256. This
-discrepancy may be a mistake in Roland's own manual.
+discrepancy may be due to 0xFF being used as a dummy value.
 
 Header at 0x00.
 Element counts at 0x100.
@@ -38,13 +42,21 @@ Header
 	0x0E: Padding, 2 bytes.
 	0x10: Text, 80 chars. Sys. ver, copyright, etc.
 
+	The text can be used to tell diskettes and HDDs apart. Diskettes should
+	contain "Sound Disk" (usually followed by a space, not a null char) at 0x29.
+
+
 Element counts
-	0x00: Unknown, 6 bytes.
+	0x00: Disk index, 8-bit uint. Only relevant for multi-disk volumes.
+	0x01: Disk count, 8-bit uint. The amount of disks that make up a multi-disk
+		  volume.
+	0x02: Unknown, 4 bytes. Seems to always be 0.
 	0x06: Volume count, uint16.
 	0x08: Performance count, uint16.
 	0x0A: Patch count, uint16.
 	0x0C: Partial count, uint16.
 	0x0E: Sample count, uint16.
+
 
 All lists are made up of 16-char entries holding the names of volumes,
 performances, patches, etc.
@@ -69,34 +81,49 @@ Performance (256B)
 
 Patch (256B)
 	0x00: Name, 16 chars.
-	0x10: Patch index, 8-bit uint.
+	0x10: Patch index, 8-bit uint. Not global but performance-scoped.
 	0x11: Unknown, 15 bytes.
 	0x20: Partial map, 88 1-byte slots. Each slot contains a partial's index. It
 		  looks like 0xFF might be used as padding, meaning the manual would be
 		  correct (255 valid partials plus one dummy value).
-	0x78: Unknown, 136 bytes.
+	0x78: Unknown, 104 bytes.
+	0xE0: Unknown, 2 bytes. Seems like both are 2 by default. Awave treats the
+		  byte with the higher value of the two as a pitch bend value with a
+		  range of 2 to 96. Anything below or above those values seems to get
+		  clamped. This behavior is pretty bizarre so I'm not gonna treat it as
+		  correct without hardware testing.
+	0xE2: Unknown, 6 bytes.
+	0xE8: Aftertouch, 8-bit uint.
+	0xE9: Unknown, 3 bytes.
+	0xEC: Modulation, 8-bit uint.
+	0xED: Unknown, 3 bytes.
+	0xF0: Unknown, 1 byte. Also seems to be 2 by default. Changing it did not
+		  seem to affect anything in Awave.
+	0xF1: Unknown, 15 bytes.
 
 
 Partial (128B)
 	0x00: Name, 16 chars.
 	0x10: Sample entries. 4 * 16 bytes.
-	0x50: Unknown, 48 bytes.
+	0x50: Filter env vel, 8-bit uint. At least it's what Awave seems to think it
+		  is.
+	0x51: Unknown, 47 bytes. It seems to contain envelope data, but the way
+		  Awave treats it is really weird so it needs hardware testing.
 
 
 Partial sample entry (16B)
-	0x00: Sample index, 16-bit uint. 0xFF as dummy value.
-	0x02: Unknown, 14 bytes.
+	0x00: Sample index, 16-bit uint. 0xFFFF as dummy value.
+	0x02: Key shift, 8-bit uint.
+	0x03: Volume, 8-bit uint. Probably just a MIDI volume setting (0, 127).
+	0x04: Pan, 8-bit int. Probably just MIDI pan (-64, 63).
+	0x05: Coarse tune, 8-bit int.
+	0x06: Fine tune, 8-bit int. Awave seems to use an offset for this. I'm not
+		  sure what the actual range or behavior is. Needs hardware testing.
+	0x07: Low velocity, 8-bit uint. Seems to correspond to MIDI velocity.
+	0x08: Unknown, 1 byte.
+	0x09: High velocity, 8-bit uint. Seems to correspond to MIDI velocity.
+	0x0A: Unknown, 6 bytes.
 
-
-Sample parameters (48B)
-	0x00: Name, 16 chars.
-	0x10: Unknown, 32 bytes.
-
-	I have been unable to make any headway into the sample parameters. I think
-	0x2D might hold the sample's root note, but I'm not sure. I don't really
-	know how it marks where its audio data starts and ends, it doesn't really
-	seem straightforward. It might be using some sort of "segment" system like
-	on the S-5XX.
 
 The sample parameter section seems to be made up of several segments of 10
 samples' parameters and 32 bytes of padding. Whenever a segment would be used
@@ -104,4 +131,59 @@ only partially, the remaining slots get padded with data from the previous
 segment. It's fairly easy to tell this dummy data apart because every 4th byte
 in the data section is either 0x7C or 0x7D, which will show up as '|' and '}'.
 
+Sample parameters (48B)
+	0x00: Name, 16 chars.
+	0x10: Unknown, 1 byte.
+	0x11: Unsure, 3 bytes. Seems to contain the start offset but Awave does not
+		  seem to acknowledge it.
+	0x14: Unknown, 1 byte.
+	0x15: Loop start, 24-bit uint. Number of samples.
+	0x18: Unknown, 1 byte.
+	0x19: Loop end, 24-bit uint. Number of samples.
+	0x1C: Unknown, 1 byte.
+	0x1C: 24-bit uint. Seems to be the sample's length (in number of samples)
+		  minus 4. Maybe related to the release loop feature?
+	0x20: Unknown, 1 byte.
+	0x21: Sample length, 24-bit uint. Number of samples.
+	0x24: Loop mode, 1 byte enum.
+	0x25: Unknown, 3 bytes. Might also be related to the release loop feature.
+	0x28: Start segment, 8-bit uint.
+	0x29: Disk index, 8-bit uint. For multi-disk volumes.
+	0x2A: Segment count, 8-bit uint.
+	0x2B: Unknown, 1 byte.
+	0x2C: Sample rate, 1 byte. The lower nibble controls the sample rate. The
+		  upper nibble is sometimes 1 but that only seems to be the case when
+		  the lower nibble is 0. Anyhow, the upper nibble should be ignored when
+		  checking the sample rate.
+	0x2D: Root note, 1 byte. MIDI note.
+	0x2E: Unknown, 2 bytes. Probably padding.
+
+	The format uses mono samples exclusively. It creates stereo pairs by using
+	two samples with 0x7F 'L' and 0x7F 'R' as the last two characters of a
+	sample's name. The rest of the name is identical.
+	
+	S-7XX samples have fine looping. There's no space left for more 24-bit ints,
+	so I suspect it uses the leftover (unknown) bytes to control fine looping.
+
+	It seems even Roland's official library contains samples that try to read
+	past the end of the disk. I don't know if it's meant to read from the next
+	disk in a multi-disk volume.
+
+	Loop mode
+		fwd,
+		off = 2,
+		other = 4 (Awave calls this "bid")
+
+	S-7XX machines have several loop modes. Other values unknown as of now.
+
+	Sample rate
+		48KHz,
+		44.1KHz,
+		24KHz,
+		unknown,
+		22.05KHz
+
+
 The audio section on DSHD disks holds 672768 16-bit samples (1314KB).
+It seems the audio section is divided into 146 segments of 4608 samples
+(9216 bytes) each.
