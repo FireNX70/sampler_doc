@@ -44,7 +44,8 @@ The cluster map seems to operate like a FAT.
 It seems it usually is located at block 2 (0x400) and is made up of unsigned
 16-bit values. Special values are 0x0000 (free cluster), 0x7FFF (EOF) and 0x8000
 (reserved cluster). Any value between 1 and 0x7FFE marks that a cluster is in
-use and which cluster is next (1-based).
+use and which cluster is next. Cluster addresses should be treated as 0-based
+for the cluster map, but should be treated as 1-based when accessing data.
 
 The directory list is made up of 32-byte entries, where each one is a directory.
 Again, on EIII filesystems, it seems there's usually only one directory.
