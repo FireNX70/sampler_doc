@@ -1,0 +1,58 @@
+S900 and older
+	Their formats don't seem to be nearly as widespread as the S1000/S3000
+	format. They had some sort of disk interface, but I don't know if it was
+	SCSI. Because these formats weren't all that popular and probably mostly
+	used diskettes, which use their own special format and are incompatible with
+	PCs; I'm not gonna bother with them.
+
+
+S1000/S3000
+	Documented by Hiroyuki Ohsaki https://lsnl.jp/~ohsaki/software/akaitools/
+	S3000-format.html
+	and Paul Kellett http://www.maxim.abel.co.uk/akai/akaiinfo.htm (use the
+	waybackmachine).
+
+	S1000 and S3000 share the same overall filesystem and have very similar data
+	structures. Later S1000 OSes can work with the S3000 FS.
+
+	First partition contains partition table at 0x4500.
+	Test patch called "TEST PROGRAM" at 0x5000 within each part (maybe some
+	disks only).
+	Volume 1 usually starts at 0x6000. No real volume metadata besides type
+	(S1000 or S3000) and start block.
+
+	100 volumes per part. Volumes appear to be directories moreso than banks.
+	Original file (per volume) limit of 125 (according to ChickenSys) or 128
+	(according to Hiroyuki Ohsaki) on the S1000.
+	Extended limit of 509 (according to ChickenSys) or 512 (according to
+	Hiroyuki Ohsaki) on the S3000. S1000 volumes retain the old limits.
+
+	Mesa uses .PRG, .S3P and .SP files for programs and wav files for samples.
+	Acording to Awave, S3P files use "a 'SysEx' like format". After managing to
+	get some S3P files, I can confirm it looks like SysEx.
+	ChickenSys' Akai format page claims PRG, SP and S3P files are all actually
+	the same format with different extensions; with PRG and S3P being used on
+	PCs and SP being used on Mac. If that's the case, this means Akai's only
+	actual S1000/S3000 file format stores SysEx data.
+
+	While Awave does not seem to be able to export PRG or SP files; it does
+	export P and S files, which appear to be raw copies of the on-disk data
+	structures corresponding to programs and samples, respectively. This does
+	seem like a far more practical approach to storing copies of Akai programs
+	and samples on PC. This was apparently also done by Creamware for their
+	Pulsar cards.
+
+
+S5000/S6000
+	AKP files for programs and wav files for samples.
+	AKP files are RIFF.
+
+	AKP reverse engineered and documented by Seb Francis here:
+	https://burnit.co.uk/AKPspec/.
+	
+	Wav manufacturer specific data documented by Paul Kellett.
+	Samples use fact and smpl chunks, which are standardized.
+
+	Unsure about filesystem or on-disk data structures. However, I remember
+	reading something about Akai using the "DOS" format (aka probably some
+	variant of FAT) on the S5000/S6000.
