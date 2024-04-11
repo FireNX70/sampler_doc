@@ -7,14 +7,14 @@ The S-770's manual claims a maximum capacity of 128 volumes, 512 performances,
 1024 patches, 4096 partials and 8192 samples per HDD. This lines up with the
 spacing for the different sections on the disk images I've checked.
 The maximum size of an S-7XX FS is 0x2429A800 (606709760) bytes, or 592490 KB
-The maximum capcity for audio is 65524 segments (603869184 B).
+The maximum capacity for audio is 65524 segments (603869184 B).
 
 Differences between the normal S-7XX HDD format and the S-760's are as follows:
 	1. "S-760 System Disk" as opposed to "SYS-772 HardDisk Sys" at 0x11 within
 	   the header's text. The version string still starts at 0x26 (within the
 	   text block).
 	
-	2. The audio section starts later. This was done to accomodate extra OS
+	2. The audio section starts later. This was done to accommodate extra OS
 	   data. Technically, 0x2B5800 is still treated as the start of the audio
 	   section but audio data is written starting at segment 0x72 (treated as
 	   0x74).
@@ -102,7 +102,7 @@ TOC (32 B)
 	count" (assuming 512 B blocks).
 	
 	Modifying the block count on the CF did not affect the available time
-	displayed by the sampler, which is actually directly controller by a
+	displayed by the sampler, which is actually directly controlled by a
 	variable in the FAT. Reinitializing the CF only resulted in the block count
 	being set back to 0x1214D4.
 
