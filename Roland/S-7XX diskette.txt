@@ -1,26 +1,37 @@
 S-7XX diskette format.
 
-Can use both 720KB DSDD and 1.44MB DSHD disks.
-
 Little-endian.
 
 Known to use pre-emphasis.
 
-Machine name is "S770 MR25A".
+Can use both 720 KB DSDD and 1440 KB DSHD disks. DD and HD formats are nearly
+identical, with the DD format holding a bit under half the samples per disk as
+its HD counterpart (304128 vs 672768, 16-bit samples). Saving to DD disks
+requires twice as many disks (potentially 2 times plus 1).
 
-I have partially figured out the DSHD format. I do not have any disk images for
-the DSDD one. I assume it's the same but cut down.
+In multi-disk volumes, parameter data is always loaded from the first disk.
+Inconsistencies in parameter data are ignored. Mismatches in the disk ID will
+cause the sampler to keep requesting the next disk upon inserting it. After
+enough time has passed, inserting a disk with a mismatch will cause the loading
+process to error out.
 
-I have partially figured out the data structures (performances, patches, etc.)
-but there's still some work to be done. What's documented here relating to data
-structures comes in part from using Awave Studio and I do not own an S-7XX, so
-data gathered with actual hardware should take priority over what's here.
+"Patch stereo mix" and "Partial stereo mix" were removed from the S-760, so I
+will not be able to document them.
+"Patch output assign", "Partial output assign" and "Sample pan" had their range
+extended on the S-760. The value ranges documented here will be valid for the
+S-760 but I'm unsure what the S-770's/S-750's behavior would be.
 
-A DSHD disk has slots for 1 volume, 64 performances, 128 patches, 256 partials
-and 512 samples.
+"Aftertouch LFO pan depth", "Modulation LFO pan depth" and "Control change LFO
+pan depth" were patch parameters added with the SP-700 and not present on the
+S-760.
+"LFO pan modulation depth" was a partial parameter added with the SP-700, not
+present on the S-760 V1 and added back in V2.
 
-The S-770's manual's figures for the sampler's own memory match these, except
-for the partial count where it claims to have 255 slots instead of 256. This
+The diskette format, both DD and HD, has slots for 1 volume, 64 performances,
+128 patches, 256 partials and 512 samples.
+
+The S-770's manual's figures for the sampler's memory match these, except for
+the partial count where it claims to have 255 slots instead of 256. This
 discrepancy may be due to 0xFF being used as a dummy value.
 
 Header at 0x00.
@@ -36,154 +47,409 @@ Partial parameters at 0x10E00.
 Sample parameters at 0x18E00.
 Audio data at 0x1F800.
 
-Header
+All lists are made up of 16-char entries holding the names of performances,
+patches, etc. The volume name is also 16 chars long.
+
+The audio section is divided into 66 (DSDD) or 146 (DSHD) segments per disk,
+each one 4608 samples (9216 bytes) in length.
+Because writing to a diskette will always rewrite the entire diskette, no
+individual samples will be deleted or overwritten; so there's no space for
+fragmentation and no need for a FAT.
+
+The S-760 shifts the audio 5 segments down. This happens on both DD and HD
+diskettes. The reason for this is that the S-760 stores extra performance
+parameters at 0x1F800. Why the audio data would be shifted by a whole 5 segments
+when the extra performance data is relatively small (it takes up 512 bytes; most
+likely because of the block size, given that the actual data takes up much less
+space) is beyond me.
+
+
+Header (96 B)
 	0x00: Padding, 4 bytes.
 	0x04: Machine name, 10 chars.
-	0x0E: Padding, 2 bytes.
+	0x0E: Padding, 1 byte.
+	0x0F: Media type, 1 byte enum.
 	0x10: Text, 80 chars. Sys. ver, copyright, etc.
-
-	The text can be used to tell diskettes and HDDs apart. Diskettes should
-	contain "Sound Disk" (usually followed by a space, not a null char) at 0x29.
-
-
-Element counts
-	0x00: Disk index, 8-bit uint. Only relevant for multi-disk volumes.
-	0x01: Disk count, 8-bit uint. The amount of disks that make up a multi-disk
-		  volume.
-	0x02: Unknown, 4 bytes. Seems to always be 0.
-	0x06: Volume count, uint16.
-	0x08: Performance count, uint16.
-	0x0A: Patch count, uint16.
-	0x0C: Partial count, uint16.
-	0x0E: Sample count, uint16.
-
-
-All lists are made up of 16-char entries holding the names of volumes,
-performances, patches, etc.
-
-
-Performance (256B)
-	0x00: Name, 16 chars.
-	0x10: Probably the patch map. 16 1-byte entries, with each entry as a
-		  patch's index and each slot corresponding to a MIDI channel. 0xFF
-		  seems to be used to indicate a channel is unused.
-	0x20: Unknown, 64 bytes.
-	0x60: Either low note or low fade settings. 16 1-byte slots, 1 per
-		  part/channel. Default value seems to be 0x15 (21).
-	0x70: Either low note or low fade settings. 16 1-byte slots, 1 per
-		  part/channel. Default value seems to be 0x15 (21).
-	0x80: Either high note or high fade settings. 16 1-byte slots, 1 per
-		  part/channel. Default value seems to be 0x6C (108).
-	0x90: Either high note or high fade settings. 16 1-byte slots, 1 per
-		  part/channel. Default value seems to be 0x6C (108).
-	0xA0: Unknown, 96 bytes.
-
-
-Patch (256B)
-	0x00: Name, 16 chars.
-	0x10: Patch index, 8-bit uint. Not global but performance-scoped.
-	0x11: Unknown, 15 bytes.
-	0x20: Partial map, 88 1-byte slots. Each slot contains a partial's index. It
-		  looks like 0xFF might be used as padding, meaning the manual would be
-		  correct (255 valid partials plus one dummy value).
-	0x78: Unknown, 104 bytes.
-	0xE0: Unknown, 2 bytes. Seems like both are 2 by default. Awave treats the
-		  byte with the higher value of the two as a pitch bend value with a
-		  range of 2 to 96. Anything below or above those values seems to get
-		  clamped. This behavior is pretty bizarre so I'm not gonna treat it as
-		  correct without hardware testing.
-	0xE2: Unknown, 6 bytes.
-	0xE8: Aftertouch, 8-bit uint.
-	0xE9: Unknown, 3 bytes.
-	0xEC: Modulation, 8-bit uint.
-	0xED: Unknown, 3 bytes.
-	0xF0: Unknown, 1 byte. Also seems to be 2 by default. Changing it did not
-		  seem to affect anything in Awave.
-	0xF1: Unknown, 15 bytes.
-
-
-Partial (128B)
-	0x00: Name, 16 chars.
-	0x10: Sample entries. 4 * 16 bytes.
-	0x50: Filter env vel, 8-bit uint. At least it's what Awave seems to think it
-		  is.
-	0x51: Unknown, 47 bytes. It seems to contain envelope data, but the way
-		  Awave treats it is really weird so it needs hardware testing.
-
-
-Partial sample entry (16B)
-	0x00: Sample index, 16-bit uint. 0xFFFF as dummy value.
-	0x02: Key shift, 8-bit uint.
-	0x03: Volume, 8-bit uint. Probably just a MIDI volume setting (0, 127).
-	0x04: Pan, 8-bit int. Probably just MIDI pan (-64, 63).
-	0x05: Coarse tune, 8-bit int.
-	0x06: Fine tune, 8-bit int. Awave seems to use an offset for this. I'm not
-		  sure what the actual range or behavior is. Needs hardware testing.
-	0x07: Low velocity, 8-bit uint. Seems to correspond to MIDI velocity.
-	0x08: Unknown, 1 byte.
-	0x09: High velocity, 8-bit uint. Seems to correspond to MIDI velocity.
-	0x0A: Unknown, 6 bytes.
-
-
-The sample parameter section seems to be made up of several segments of 10
-samples' parameters and 32 bytes of padding. Whenever a segment would be used
-only partially, the remaining slots get padded with data from the previous
-segment. It's fairly easy to tell this dummy data apart because every 4th byte
-in the data section is either 0x7C or 0x7D, which will show up as '|' and '}'.
-
-Sample parameters (48B)
-	0x00: Name, 16 chars.
-	0x10: Unknown, 1 byte.
-	0x11: Unsure, 3 bytes. Seems to contain the start offset but Awave does not
-		  seem to acknowledge it.
-	0x14: Unknown, 1 byte.
-	0x15: Loop start, 24-bit uint. Number of samples.
-	0x18: Unknown, 1 byte.
-	0x19: Loop end, 24-bit uint. Number of samples.
-	0x1C: Unknown, 1 byte.
-	0x1C: 24-bit uint. Seems to be the sample's length (in number of samples)
-		  minus 4. Maybe related to the release loop feature?
-	0x20: Unknown, 1 byte.
-	0x21: Sample length, 24-bit uint. Number of samples.
-	0x24: Loop mode, 1 byte enum.
-	0x25: Unknown, 3 bytes. Might also be related to the release loop feature.
-	0x28: Start segment, 8-bit uint.
-	0x29: Disk index, 8-bit uint. For multi-disk volumes.
-	0x2A: Segment count, 8-bit uint.
-	0x2B: Unknown, 1 byte.
-	0x2C: Sample rate, 1 byte. The lower nibble controls the sample rate. The
-		  upper nibble is sometimes 1 but that only seems to be the case when
-		  the lower nibble is 0. Anyhow, the upper nibble should be ignored when
-		  checking the sample rate.
-	0x2D: Root note, 1 byte. MIDI note.
-	0x2E: Unknown, 2 bytes. Probably padding.
-
-	The format uses mono samples exclusively. It creates stereo pairs by using
-	two samples with 0x7F 'L' and 0x7F 'R' as the last two characters of a
-	sample's name. The rest of the name is identical.
 	
-	S-7XX samples have fine looping. There's no space left for more 24-bit ints,
-	so I suspect it uses the leftover (unknown) bytes to control fine looping.
+	Machine name is always "S770 MR25A". However, the machine name in "Text"
+	changes from "SYS-772" on most S-7XX machines to "S-760" on the S-760.
+	
+	"Text" can also be used to tell diskettes and HDDs apart. Diskettes should
+	contain "SYS-772 Sound Disk" or "S-760 Sound Disk" (usually followed by a
+	space, not a null char) at 0x11 from the start of text.
 
+
+Media type
+	HDD, //also used for CDs
+	HDD_with_OS = 0x20,
+	DSHD_diskette = 0x32,
+	DSDD_diskette,
+	S760_HDD_with_OS = 0x40
+
+
+Element counts/TOC (16 B)
+	0x00: Disk index, 8-bit uint. Only relevant for multi-disk volumes.
+	0x01: Disk count, 8-bit uint. 0 means one disk, the true count is this +1.
+	0x02: ID, 32-bit uint. All 0s on the library diskettes.
+	0x06: Volume count, 16-bit uint.
+	0x08: Performance count, 16-bit uint.
+	0x0A: Patch count, 16-bit uint.
+	0x0C: Partial count, 16-bit uint.
+	0x0E: Sample count, 16-bit uint.
+	
+	I'm not entirely sure that 0x2 is an ID. The first byte increments by one
+	every time I save to disk. The second byte for now remains at 0, I suspect
+	it might be the upper byte of a 16-bit value. The last two bytes vary fairly
+	wildly every time.
+
+
+Performance (256 B)
+	0x00: Name. 16 chars.
+	0x10: Part patch map. 32 bytes (one per part). 0-based, 0xFF marks
+		  unassigned parts. This is an index, it does NOT match a patch's "Patch
+		  number".
+	0x30: Part channel map. 16 bytes. Each byte contains the channel number
+		  (0-based) for 2 parts, where the bottom nibble of the first byte is
+		  the channel number for part one and the upper nibble is the channel
+		  number for part 2 and so on.
+	0x40: Part volume and enable flag. 32 bytes (one per part). Each byte
+		  contains the part's volume (0 - 127, the lower 7 bits) and its enable
+		  flag (top bit).
+	0x60: Part low note. 32 8-bit uints.
+	0x80: Part high note. 32 8-bit uints.
+	0xA0: Part low fade width. 32 8-bit uints.
+	0xC0: Part high fade width. 32 8-bit uints.
+	0xE0: Program change filter. 16-bit bitfield. One bit per channel.
+	0xE2: Pitch bend filter. 16-bit bitfield. One bit per channel.
+	0xE4: Modulation filter. 16-bit bitfield. One bit per channel.
+	0xE6: Hold filter. 16-bit bitfield. One bit per channel.
+	0xE8: Phase lock. 16-bit bitfield. One bit per channel.
+	0xEA: Volume filter. 16-bit bitfield. One bit per channel.
+	0xEC: Aftertouch filter. 16-bit bitfield. One bit per channel.
+	0xEE: Aftertouch filter 2. 16-bit bitfield. One bit per channel.
+	0xF0: Velocity curve type. 16-bytes, one per channel. Values are 0
+		  (disabled) through 7. This is pretty wasteful.
+	
+	The aftertouch filter works in an even stranger way than the pan filter (see
+	extra performance parameters). When a bit is low in the first bitfield and
+	high in the second one, the corresponding channel will ignore aftertouch
+	data. When the first bitfield's bit is high and the second bitfield's bit is
+	low, the channel will be considered to be in "channel aftertouch" mode (C).
+	When both bits are equal, regardless of whether they are high or low (the
+	S-760 sets them both high), the channel is set into "polyphonic aftertouch"
+	mode (P).
+
+
+Extra performance parameters (100 B)
+	0x00: Output high gain. 8 8-bit ints, one per output.
+	0x08: Output high frequency. 8 8-bit ints, one per output. Centered around
+		  6 KHz (0); with negative and positive values representing frequencies
+		  below or above that, respectively.
+	0x10: Output low gain. 8 8-bit ints, one per output.
+	0x18: Output low frequency. 8 8-bit ints, one per output. Centered around
+		  160 Hz (0); with negative and positive values representing frequencies
+		  below or above that, respectively.
+	0x20: Part output map. 32 8-bit uints, one per part.
+	0x40: Part pan. 32 8-bit ints, one per part.
+	0x60: Pan filter. 16-bit bitfield.
+	0x62: Pan filter 2. 16-bit bitfield.
+	0x64: Unused? 28 bytes.
+	0x80: Mirrors performance data starting at 0x80 (part high note).
+	
+	The gain and frequency parameters are for per-output EQ.
+	
+	The part output map uses 0 - 3 for A - D, 4 - 11 for 1 - 8 and 0xFF for
+	patch-controlled.
+	
+	The pan filter works in a strange way. If the corresponding bit on both
+	bitfields is low, the channel will ignore MIDI pan instructions. If its
+	corresponding bit is high only on the first bitfield, it will be set into
+	"continuous pan" mode (marked with a C). If the second bitfield's
+	corresponding bit is high (regardless of the first bitfield's state), the
+	channel will be marked with a "D" (which I assume stands for "delayed pan").
+	
+	On the original S-760 OS, the pan filter was a simple switch. On would act
+	the same way as "D". With revision 2 of the OS, continuous pan was
+	introduced. Adding a second bitfield was the easiest way to tack on the
+	extra MIDI filter state without affecting compatibility. However,
+	considering that the second bitfield is prioritized, inconsistent behavior
+	may manifest across OS revisions; as I assume that only the first bitfield
+	existed in version 1 of the OS, and so only it would be considered. Thus; a
+	channel with its bit unset on the first bitfield and set on the second one
+	would be considered to be using "D" panning on version 2 of the OS, but
+	would be considered to have panning disabled on version 1. This has no
+	effect in practice because both bits are unset when disabling pan through
+	the S-760's interface. The only way to cause this would be to edit the MIDI
+	filter data with external tools.
+
+
+Patch (256 B)
+	0x00: Name. 16 chars.
+	0x10: Patch number. 8-bit uint. 0 - 127, displayed as 1 - 128. Assignable by
+		  the user. Not used by performances. Most likely only used by MIDI
+		  patch changes.
+	0x11: Unknown. 1 byte.
+	0x12: Pan. 8-bit int. +-32, 0 = center.
+	0x13: Volume. 8-bit uint. 0 - 127.
+	0x14: Special mono output. 8-bit uint. Tracks 0x1D in the 0 - 5 range, then
+		  is set to 0xFF for 6 and 7. Set to 6 when the ouput is set to "P".
+		  Most likely used in the "stereo + 6 mono" output mode.
+	0x15: Priority. 1 byte (flag). Used for voice stealing.
+	0x16: Cutoff. 8-bit int.
+	0x17: Velocity. 8-bit int.
+	0x18: Octave shift. 8-bit int. +-2.
+	0x19: Coarse tuning. 8-bit int. +- 48.
+	0x1A: Fine tuning. 8-bit int. +-50.
+	0x1B: Sample mix table control select. 1 byte enum.
+	0x1C: Sample mix table control sensitivity. 8-bit int. +-63.
+	0x1D: Mono output. 8-bit uint. Tracks the absolute output value -4. 0 - 7
+		  are outputs 1 - 8. Set to 8 when the output is set to "P". Most likely
+		  used for the mono output mode.
+	0x1E: Analog feel. 8-bit uint. 0 - 127.
+	0x1F: Output (absolute). 0 - 3 are A - D (stereo), 4 - 11 are 1 - 8 (mono)
+		  and 12 is "P" (partial). When this is set to 0 - 3, "Stereo mono
+		  output" and "Mono output" will be set to 0xFF.
+	0x20: Key partial map. 88 bytes (8-bit uints). Byte 0 maps to MIDI note 21
+		  (A0), byte 87 maps to MIDI note 108 (C8). Each value is an index to a
+		  partial. 0 - 254 (displayed as 1 - 255), 0xFF marks unassigned keys.
+	0x78: Unknown. 8 bytes. Unused?
+	0x80: Key group map. 88 bytes (8-bit uints). Key range equivalent to the
+		  "Key partial map". 0 = "Poly", 1 = "Mono", 2 - 17 are Exc1 - Exc16.
+	0xD8: Unknown. 8 bytes. Unused?
+	0xE0: Pitch bend up range. 8-bit uint. 0 - 48 (semitones).
+	0xE1: Pitch bend down range. 8-bit uint. 0 - 48 (semitones).
+	0xE2: Bend to TVA level. 8-bit int. +-63.
+	0xE3: Bend to TVF frequency. 8-bit int. +-63.
+	0xE4: Aftertouch to pitch. 8-bit int. +-48 (semitones).
+	0xE5: Aftertouch to TVA level. 8-bit int. +-63.
+	0xE6: Aftertouch to TVF frequency. 8-bit int. +-63.
+	0xE7: Aftertouch to LFO rate. 8-bit int. +-63.
+	0xE8: Aftertouch to LFO depth. 8-bit int. +-63.
+	0xE9: Aftertouch to LFO to TVA level depth. 8-bit int. +-63.
+	0xEA: Aftertouch to LFO to TVF frequency depth. 8-bit int. +-63.
+	0xEB: Modulation to LFO rate. 8-bit int. +-63.
+	0xEC: Modulation to LFO depth. 8-bit int. +-63.
+	0xED: Modulation to LFO to TVA level depth. 8-bit int. +-63.
+	0xEE: Modulation to LFO to TVF frequency depth. 8-bit int. +-63.
+	0xEF: Resonance offset. 8-bit int. +-63.
+	0xF0: Control select. 8-bit uint. 0 - 95.
+	0xF1: Control to pitch. 8-bit int. +-48 (semitones).
+	0xF2: Control to TVA level. 8-bit int. +-63.
+	0xF3: Control to TVF frequency. 8-bit int. +-63.
+	0xF4: Control to LFO rate. 8-bit int. +-63.
+	0xF5: Control to LFO depth. 8-bit int. +-63.
+	0xF6: Control to LFO to TVA level depth. 8-bit int. +-63.
+	0xF7: Control to LFO to TVF frequency depth. 8-bit int. +-63.
+	0xF8: Attack time offset. 8-bit int. +-63.
+	0xF9: Release time offset. 8-bit int. +-63.
+	0xFA: Aftertouch to LFO to pan. 8-bit int. +-63.
+	0xFB: Modulation to LFO to pan. 8-bit int. +-63.
+	0xFC: Control to LFO to pan. 8-bit int. +-63.
+	0xFD: Oneshot. 1 byte (flag). 8-bit int.
+	0xFE: Unknown. 2 bytes. Likely unused.
+	
+	Control select seems to default to 2 (breath control). Range 0 - 95, with
+	the values corresponding to standard MIDI CCs.
+	
+	The S-760 does not appear to care about mismatched values for the three
+	output variables. It looks like it always uses "Output (absolute)".
+	
+	Aftertouch to LFO to pan, modulation to LFO to pan, control to LFO to pan
+	and oneshot were added with V2 of the S-760 OS.
+
+
+Sample mix table control select
+	pitch_bend,
+	aftertouch,
+	modulation,
+	control_change,
+	off = 255
+
+
+Partial (128 B)
+	0x00: Name. 16 chars.
+	0x10: Partial sample entry 1. 11 bytes.
+	0x1B: Unknown. 1 byte. Seems to be always 0.
+	0x1C: Output (mono). 1 byte. 
+	0x1D: Unknown. 1 byte. Seems to always be 0x7F.
+	0x1E: Volume. 8-bit uint. 0 - 127.
+	0x1F: Unsure. 1 byte. Likely mono output for stereo plus 6 mono.
+	0x20: Partial sample entry 2. 11 bytes.
+	0x2B: Unknown 3. 1 byte.
+	0x2C: Pan. 8-bit int. +-32.
+	0x2D: Coarse tune. 8-bit int. +-48 (semitones).
+	0x2E: Fine tune. 8-bit int. +-50.
+	0x2F: Sample mix table velocity control. 1 byte (flag).
+	0x30: Partial sample entry 3. 11 bytes.
+	0x3B: Unknown 4. 1 byte.
+	0x3C: Output (absolute). 1 byte.
+	0x3D: Unknown 5. 3 bytes.
+	0x40: Partial sample entry 4. 11 bytes.
+	0x4B: Filter mode. 1 byte enum.
+	0x4C: Filter cutoff. 8-bit uint. 0 - 127.
+	0x4D: Resonance. 8-bit uint. 0 - 127.
+	0x4E: TVF velocity curve. 1 byte enum.
+	0x4F: TVF curve sensitivity. 8-bit int. +-63.
+	0x50: TVF envelope time velocity sensitivity. 8-bit int. +-63. Seems to
+		  default to 0. Called "Time Velocity Sense" in the manual.
+	0x51: TVF envelope depth velocity sensitivity. 8-bit int. +-63. Seems to
+		  default to 63. Simply called "Envelope Velocity Sense" in the manual.
+	0x52: TVF envelope release level. 8-bit uint. 0 - 127.
+	0x53: TVF envelope attack level. 8-bit uint. 0 - 127.
+	0x54: TVF envelope decay level. 8-bit uint. 0 - 127.
+	0x55: TVF envelope sustain level. 8-bit uint. 0 - 127.
+	0x56: TVF envelope attack time. 8-bit uint. 0 - 127.
+	0x57: TVF envelope decay time. 8-bit uint. 0 - 127.
+	0x58: TVF envelope sustain time. 8-bit uint. 0 - 127.
+	0x59: TVF envelope release time. 8-bit uint. 0 - 127.
+	0x5A: TVF envelope depth. 8-bit int. +-63. Seems to default to 0.
+	0x5B: TVF envelope pitch depth. 8-bit int. +-63. Seems to default to 0.
+	0x5C: TVF keyfollow point. 8-bit uint. Maps to MIDI notes.
+	0x5D: TVF time keyfollow. 8-bit int. +-63.
+	0x5E: Unknown. 1 byte. Seems to always be 0.
+	0x5F: TVF cutoff keyfollow. 8-bit int. +-63.
+	0x60: TVA velocity curve. 1 byte enum.
+	0x61: TVA velocity curve sensitivity. 8-bit int. +-63.
+	0x62: TVA time velocity sensitivity. 8-bit int. +-63.
+	0x63: Unknown. 1 byte. Seems to always be 0.
+	0x64: TVA envelope attack level. 0 - 127.
+	0x65: TVA envelope decay level. 0 - 127.
+	0x66: TVA envelope sustain level. 0 - 127.
+	0x67: TVA envelope attack time. 0 - 127.
+	0x68: TVA envelope decay time. 0 - 127.
+	0x69: TVA envelope sustain time. 0 - 127.
+	0x6A: TVA envelope release time. 0 - 127.
+	0x6B: Unknown. 1 byte. Seems to always be 0.
+	0x6C: TVA keyfollow point. 8-bit uint. Maps to MIDI notes.
+	0x6D: TVA time keyfollow. 8-bit int. +-63.
+	0x6E: Unknown. 1 byte. Seems to always be 0.
+	0x6F: TVA level keyfollow. 8-bit int. +-63.
+	0x70: LFO waveform. 1 byte enum.
+	0x71: LFO rate. 8-bit uint. 0 - 127.
+	0x72: LFO key sync. 1 byte (flag).
+	0x73: LFO delay. 8-bit uint. 0 - 127.
+	0x74: LFO delay keyfollow. 8-bit uint. 0 - 63.
+	0x75: LFO rate detune. 8-bit uint. 0 - 127.
+	0x76: LFO to pitch. 8-bit int. +-63.
+	0x77: LFO to TVF. 8-bit int. +-63.
+	0x78: LFO to TVA. 8-bit int. +-63.
+	0x79: LFO to pan. 8-bit int. +-63.
+	0x7A: TVF release time velocity sensitivity. 8-bit int. +-63.
+	0x7B: TVA release time velocity sensitivity. 8-bit int. +-63.
+	0x7C: Unknown. 4 bytes. Likely unused.
+	
+	With regard to outputs; partials once again use three variables, much in the
+	same way as patches, to keep track of which output should be used. Again, it
+	appears the absolute value is the one that's always actually used to
+	determine the sampler's behavior.
+	
+	0x63 would probably be the TVA envelope's release level, but it's not
+	editable on hardware (always forced to 0). Might wanna check what happens if
+	I manually modify this byte on a hex editor.
+	
+	TVF and TVA velocity curve values 0 - 3 directly correspond to curves 1 - 4.
+
+
+Filter mode
+	low_pass,
+	band_pass,
+	high_pass,
+	off = 255
+
+
+LFO waveform
+	sine,
+	tri,
+	saw_up,
+	saw_down,
+	square,
+	rnd,
+	bend_up,
+	bend_down
+
+
+Partial sample entry (11 B)
+	0x0: Sample index. 16-bit uint.
+	0x2: Key shift. 8-bit int. +-16, normal 8.
+	0x3: Volume. 8-bit uint. 0 - 127.
+	0x4: Pan. 8-bit int. +-32 and special values (see enum).
+	0x5: Coarse tune. 8-bit int. +-48.
+	0x6: Fine tune. 8-bit int. +-50.
+	0x7: Low velocity. 8-bit int.
+	0x8: Low fade. 8-bit int.
+	0x9: High velocity. 8-bit int.
+	0xA: High fade. 8-bit int.
+
+
+Special pan values
+	random = 33,
+	key_plus,
+	key_minus,
+	LFO_plus,
+	LFO_minus,
+	alt
+
+
+The sample parameter section is made up of several segments of 10 samples'
+parameters and 32 bytes of padding. Whenever a segment would be used only
+partially, the remaining slots get padded with data from the previous segment.
+It's fairly easy to tell this dummy data apart because every 4th byte in the
+data section is either 0x7C or 0x7D, which will show up as '|' and '}'.
+
+Sample (48 B)
+	0x00: Name. 16 chars.
+	0x10: Unknown. 1 byte.
+	0x11: Start offset. 24-bit uint.
+	0x14: Loop fine start. 8-bit uint.
+	0x15: Loop start. 24-bit uint.
+	0x18: Unknown. 1 byte.
+	0x19: Loop end. 24-bit uint. Min 4.
+	0x1C: Release loop fine start. 8-bit uint.
+	0x1D: Release loop start. 24-bit uint. Min 14.
+	0x20: Unknown. 1 byte.
+	0x21: Release loop end. 24-bit uint. Min 18.
+	0x24: Loop mode. 1 byte enum.
+	0x25: Unknown. 1 byte.
+	0x26: Loop tune. 8-bit int. +-50.
+	0x27: Release loop tune. 8-bit int. +-50.
+	0x28: Start segment. 8-bit uint.
+	0x29: Disk index. 8-bit uint.
+	0x2A: Segment count. 16-bit uint.
+	0x2C: Sample rate. 1 byte enum.
+	0x2D: Root note. 8-bit uint. Maps to MIDI notes.
+	0x2E: Unknown. 2 bytes.
+	
+	On some CDs, I've encountered samples where the bottom bit of the top nibble
+	(0x10) of the sample rate was 1. After editing one of my diskette images and
+	loading it, it seems this has no effect. After saving to that same diskette
+	and reading it, it turns out the top nibble was reset to 0 by the sampler.
+	
+	The format uses mono samples exclusively. It creates stereo pairs by using
+	two samples with 0x7F 'L' and 0x7F 'R' (which the S-7XX machines display as
+	"=L" and "=R", respectively) as the last two characters of a sample's name.
+	The rest of the name is identical.
+	
 	It seems even Roland's official library contains samples that try to read
 	past the end of the disk. I don't know if it's meant to read from the next
 	disk in a multi-disk volume.
 
-	Loop mode
-		fwd,
-		off = 2,
-		other = 4 (Awave calls this "bid")
 
-	S-7XX machines have several loop modes. Other values unknown as of now.
-
-	Sample rate
-		48KHz,
-		44.1KHz,
-		24KHz,
-		unknown,
-		22.05KHz
+Loop mode
+	forward,
+	forward and release loop,
+	off, //oneshot
+	forward plus release once,
+	alternating,
+	reverse oneshot,
+	reverse
 
 
-The audio section on DSHD disks holds 672768 16-bit samples (1314KB).
-It seems the audio section is divided into 146 segments of 4608 samples
-(9216 bytes) each.
+Sample rate
+	48KHz,
+	44.1KHz,
+	24KHz,
+	22.05KHz,
+	30KHz,
+	15KHz,
+	32KHz,
+	16KHz
