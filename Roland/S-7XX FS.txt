@@ -6,9 +6,33 @@ series seems to rely on a fairly rigid format.
 The S-770's manual claims a maximum capacity of 128 volumes, 512 performances,
 1024 patches, 4096 partials and 8192 samples per HDD. This lines up with the
 spacing for the different sections on the disk images I've checked.
-			
-Header at 0x00.
+The maximum size of an S-7XX FS is 0x2429A800 (606709760) bytes, or 592490 KB
+The maximum capcity for audio is 65524 segments (603869184 B).
+
+Differences between the normal S-7XX HDD format and the S-760's are as follows:
+	1. "S-760 System Disk" as opposed to "SYS-772 HardDisk Sys" at 0x11 within
+	   the header's text. The version string still starts at 0x26 (within the
+	   text block).
+	
+	2. The audio section starts later. This was done to accomodate extra OS
+	   data. Technically, 0x2B5800 is still treated as the start of the audio
+	   section but audio data is written starting at segment 0x72 (treated as
+	   0x74).
+	
+	3. The OS sections are padded with 0xFF (as opposed to 0xCF23) when the HDD
+	   does not contain an OS.
+	
+	4. Performances may contain the extra performance data in the unused part of
+	   the 16-bit index block.
+	   
+	5. The S-760 can write sound data to normal S-7XX HDDs, but not its OS.
+
+
+Header at 0.
 TOC at 0x100.
+OS at 0x800.
+Free segments at 0x80802.
+Audio FAT at 0x80804.
 Volume list at 0xA0800.
 Performance list at 0xA1800.
 Patch list at 0xA5800.
@@ -19,48 +43,104 @@ Performance parameters at 0x115800.
 Patch parameters at 0x155800.
 Partial parameters at 0x1D5800.
 Sample parameters at 0x255800.
-Audio data starts at 0x2B5800.
+Audio data starts at 0x2B5800 or 0x3B6000 (S-760).
 
 
 The header is the same as in the floppy format.
 
-Header
+Header (96 B)
 	0x00: Padding, 4 bytes.
 	0x04: Machine name, 10 chars.
-	0x0E: Padding, 2 bytes.
+	0x0E: Padding, 1 byte.
+	0x0F: Media type, 1 byte enum.
 	0x10: Text, 80 chars. Sys. ver, copyright, etc.
+	
+	Machine name is always "S770 MR25A".
+	
+	The text appears to be the only reliable way to tell whether an HDD without
+	an OS was formatted by an S-760 or a more normal S-7XX machine. Text from a
+	normal S-7XX machine will contain "SYS-772" at 0x11 (from the start of the
+	text). An S-760 will write "S-760" there. The only real incompatibility
+	between both variants is the OS, which is why the S-760 uses a different
+	media type value for its HDDs with an OS to begin with.
 
-	The text can be used to tell diskettes and HDDs apart. Diskettes should
-	contain "HardDisk" (usually followed by a space, not a null char) at 0x29.
+
+Media type
+	HDD,
+	HDD_with_OS = 0x20,
+	DSHD_diskette = 0x32,
+	DSDD_diskette,
+	HDD_with_OS_S760 = 0x40
+	
+	The media types used by CDs are identical to those used by HDDs. Other
+	media, like SyQuest or Zip disks, probably also use it. The manual makes it
+	sound like tape is only used for backups, but I haven't done any testing
+	with tapes.
 
 
-TOC
+TOC (32 B)
 	0x00: Disk name, 16 chars.
-	0x10: Unknown, 4 bytes.
-	0x14: Volume count, uint16.
-	0x16: Performance count, uint16.
-	0x18: Patch count, uint16.
-	0x1A: Partial count, uint16.
-	0x1C: Sample count, uint16.
+	0x10: Block count, 24-bit uint. 512 B blocks.
+	0x13: Unsure, 1 byte. Likely the top byte to the block count, but always
+		  unused.
+	0x14: Volume count, 16-bit uint.
+	0x16: Performance count, 16-bit uint.
+	0x18: Patch count, 16-bit uint.
+	0x1A: Partial count, 16-bit uint.
+	0x1C: Sample count, 16-bit uint.
 	0x1E: Padding, 2 bytes.
+	
+	The variable I believe to be the block count is 0x3E000 on LCDP-05 and
+	0x1214D4 on a 2 GB CF after formatting.
+	
+	LCDP-05's size would be exactly 0x7C00000; and it is true that, starting at
+	that address, it's all 0s. However, LCDP-05's audio section seems to
+	actually end at 0x78B83FF and I've confirmed it only has 13427 segments.
+	This means it actually is only 0x3C5C2 blocks in size.
+	On the other hand, the CF's total usable space (tested by filling it up with
+	an S-760 until it reported no space left) perfectly coincided with "Block
+	count" (assuming 512 B blocks).
+	
+	Modifying the block count on the CF did not affect the available time
+	displayed by the sampler, which is actually directly controller by a
+	variable in the FAT. Reinitializing the CF only resulted in the block count
+	being set back to 0x1214D4.
 
 
-All disks seem to be padded with 0xFF from 0x11E to 0x3FF, but P05 has
-00 08 D1 E6 00 00 02 00 00 00 at 0x200.
-
-Most disks seem to be padded with 0xCF23 from 0x400 to 0x7FF, but P05 is padded
-until 0x807FF. Actual patch data seems to start at 0xA1800 for P05.
-
-For most discs, data seems to start at 0x800. I'm not sure what its contents
-are. It's divided into blocks separated by several zeroed out bytes.
-
-Another section starts at (0x49470, P06) (0x493C0, P08). This section seems to
-contain some strings.
+The OS is stored at 0x800 through 0x807FF. On the S-760; more OS data is stored
+starting at 0x2B5800, where the audio data would usually start, and ending at
+0x3317FF. Loading volumes into memory and then writing the OS to disk affects
+the saved OS.
 
 
-List entry
+FAT
+	0x00000: 0xFFFA always, regardless of the size of the media.
+	0x00002: Remaining free segment count, 16-bit uint.
+	0x00004: FAT, 16-bit uint entries. Max 65524 entries.
+	0x1FFEC: Unused, 20 bytes. Most are 0xFF, some are 0xFE.
+	
+	The FAT works with audio segments instead of blocks. Audio segment addresses
+	always have an offset of +2 (the beginning of audio data would be treated as
+	segment 2). 0 indicates a free block. 0xFFF8 is the end-of-chain marker. The
+	S-760 marks the segments taken up by the OS (the first 114 segments) with
+	0xFFFE (first half) and 0xFFFD (second half).
+	
+	If we were to interpret the FAT as starting at 0x80800; the first two
+	entries would be taken up by 0xFFFA and the remaining free segment count,
+	respectively. This explains the offset of +2, at least in part.
+	
+	Modifying the free segment count does directly affect the displayed
+	remaining time. Recalculating the available time does not alter the free
+	segment count (nor the displayed time), regardless of whether it matches the
+	block count in any way.
+	
+	The free segment count apparently can be recalculated from the Disk Optimize
+	menu. Doing so on the CF with the modified "Block count" had no effect.
+
+
+List entry (32 B)
 	0x00: Name, 16 chars.
-	0x10: Element type, 1 byte.
+	0x10: Element type, 1 byte enum.
 	0x11: Unknown, 1 byte. Usually 0.
 	0x12: Unknown, 6 bytes. Contains a sequence of values like
 		  N+2 0x8X N 0x8X N+1 Y (ex. 0x02 0x80 0x00 0x80 0x01 0X00). The
@@ -72,36 +152,64 @@ List entry
 		  I don't know if it's some sort of convoluted index system or what it's
 		  really supposed to do.
 	0x18: Unknown, 3 bytes. Seems to always be 0.
-	0x1B: Unknown, 1 byte. Seems to be used by performances. Related to bank
-		  select?
+	0x1B: Program number, 8-bit uint. Only used by volumes. Range 64 to 127
+		  (displayed as 65 to 128), with 0 (library CDs) and 0x3F (S-760)
+		  displyed as disabled.
 	0x1C: Start segment, 16-bit uint. Only used by samples.
 	0x1F: Segment count, 16-bit uint. Used by pretty much everything.
+	
+	I'm not sure why the element type variable exists. It's not like you could
+	have lists with entries of different types, so it's completely redundant.
+	Perhaps they intended to make a proper filesystem originally?
+	
+	When I tested with the CF, the values at 0x12 didn't even behave in the same
+	way. I have even less of an idea what those are supposed to be now.
 
-	Element types
-		volume = 0x40,
-    	performance,
-    	patch,
-    	partial,
-    	sample
 
-Volume (256B)
+Element types
+	volume = 0x40,
+	performance,
+	patch,
+	partial,
+	sample
+
+
+Volume (256 B)
 	0x00: Name, 16 chars.
-	0x10: Unknown, 16 bytes. Seems to always be 0.
-	0x20: Seems to hold 16-bit indices for performances. There's space for 112
-		  entries.
+	0x10: Padding, 16 bytes. Always 0.
+	0x20: 16-bit absolute indices to performances. 112 entries. Unused entries
+		  padded with 0xFFFF.
 
 
-Performances and patches seem to be identical to the diskette format with an
-extra 256B section appended. This section seems to contain 16-bit indices, which
-I assume refer to patches and partials respectively. This makes sense as the
-patch and partial maps from performances and patches only use 8-bit indices,
-which would not be enough for the capacity of the HDD/CD format.
+Performance (512 B)
+	0x000: Normal performance data, 256 bytes. See diskette format.
+	0x100: 16-bit absolute indices to patches, 32 entries (64 bytes). Unused
+		   entries marked with 0xFFFF.
+	0x140: Padding, 64 bytes. 0xFF.
+	0x17F: Extra performance parameters flag, 1 byte. 0 if extra performance
+		   parameters present. 0xFF otherwise.
+	0x180: Normal S-760 extra performance parameters, 100 bytes. S-760 only,
+		   padded with 0xFF otherwise. See diskette format.
+	0x1E4: Padding, 28 bytes. 0xFF.
 
-The maps do not seem to use indices respective to these. These indices are
-sometimes identical to the map's. I'm not sure exactly how they're meant to work
-together.
+
+Patch (512 B)
+	0x000: Normal patch data, 256 bytes. See diskette format.
+	0x100: 16-bit absolute indices to partials. 128 entries. Unused entries
+		   padded with 0xFFFF. The first 88 indices are mapped to the "key
+		   partial map". The "key partial map" usually contains copies of these
+		   indices' lower bytes.
 
 
-Partials and samples seem to be identical to the diskette format. Specifically
-for samples, I suppose the segment indices and counts from the sample list
-override the values held by the sample parameters (at least for loading).
+It's strange that they chose to keep the data structures identical to the
+diskette format's and to just append an entire half block's worth of data for
+the 16-bit indices.
+
+Partials and samples are identical to the diskette format's.
+Partials already use 16-bit indices in the diskette format.
+Samples have a seemingly unused byte right after their segment count which I
+suspect to be the upper byte for that value. As for samples' start segments,
+"start segment" and "disk index" are both 0 on all samples on the disks I've
+checked. It would appear that the start segment from the list is used instead.
+It's likely that the segment count from the list is also used instead of the
+sample's own, although the segment count was already 16-bit.
