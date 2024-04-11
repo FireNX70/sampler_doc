@@ -1,10 +1,32 @@
 #pragma endian little
 
+u16 SEGMENT_LENGTH = 4608; //samples
+
+u32 DD_SAMPLE_CNT = 304128;
+u32 HD_SAMPLE_CNT = 672768;
+
+u32 NORMAL_AUDIO_ADDR = 0x1F800;
+
+u32 AUDIO_ADDR = NORMAL_AUDIO_ADDR;
+u32 SAMPLE_CNT;
+
+bool S760 = true;
+
+enum Media_type: u8
+{
+    HDD, //also used for CDs
+    HDD_with_OS = 0x20,
+	DSHD_diskette = 0x32,
+	DSDD_diskette,
+	HDD_with_OS_S760 = 0x40
+};
+
 struct Header
 {
     padding[4];
     char machine_name[10];
-    padding[2];
+    padding[1];
+    Media_type media_type;
     char sys_version[80];
     padding[160];
 };
@@ -14,61 +36,241 @@ struct ListEntry
     char name[16];
 };
 
+bitfield Enable_Volume
+{
+    volume: 7;
+    enable: 1;
+};
+
 struct Performance
 {
     char name[16];
-    u8 part_patch_map[16];
-    u8 unknown[64];
-    u8 part_low_note[16];
-    u8 part_low_fade[16];
-    u8 part_high_note[16];
-    u8 part_high_fade[16];
-    u8 unknown2[96];
+    u8 part_patch_map[32];
+    u8 part_chan_map[16];
+    Enable_Volume part_volume[32];
+    u8 part_low_note[32];
+    u8 part_high_note[32];
+    u8 part_low_fade_width[32];
+    u8 part_high_fade_width[32];
+    u16 prog_change_filter;
+    u16 pitch_bend_filter;
+    u16 modulation_filter;
+    u16 hold_filter;
+    u16 phase_lock;
+    u16 volume_filter;
+    u16 aftertouch_filter;
+    u16 aftertouch_filter2;
+    u8 velo_curve_type[16];
+};
+
+struct Extra_perf_params //S-760 only?
+{
+    s8 output_high_gain[8];
+    s8 output_high_freq[8]; //0 = 6K
+    s8 output_low_gain[8];
+    s8 output_low_freq[8]; //0 = 120
+    u8 part_output_map[32];
+    s8 part_pan[32];
+    u16 pan_filter;
+    u16 pan_filter2;
+};
+
+enum SMT_csel_t: u8
+{
+    pitch_bend,
+	aftertouch,
+	modulation,
+	control_change,
+	off = 255
 };
 
 struct Patch
 {
     char name[16];
     u8 patch_num;
-    u8 unknown[15];
-    u8 partial_map[88];
-    u8 unknown2[104];
-    u8 unknown3[2]; //related to pitch_bend?
-    u8 unknown4[6];
-    u8 aftertouch;
-    u8 unknown5[3];
-    u8 modulation;
-    u8 unknown6[19];
+    u8 unknown;
+    s8 pan;
+    u8 volume;
+    u8 special_mono_out;
+    bool priority;
+    s8 cutoff;
+    s8 velocity;
+    s8 octave_shift;
+    s8 coarse_tune;
+    s8 fine_tune;
+    SMT_csel_t SMT_csel;
+    s8 SMT_csense;
+    u8 mono_out;
+    u8 analog_feel;
+    u8 output_abs;
+    u8 key_partial_map[88];
+    u8 unknown2[8];
+    u8 key_group_map[88];
+    u8 unknown3[8];
+    u8 p_bend_up_range; //semitones
+    u8 p_bend_down_range; //semitones
+    s8 bend_to_TVA_level;
+    s8 bend_to_TVF_freq;
+    s8 aftertouch_to_pitch; //semitones
+    s8 aftertouch_to_TVA_level;
+    s8 aftertouch_to_TVF_freq;
+    s8 aftertouch_to_LFO_rate;
+    s8 aftertouch_to_LFO_depth; //a.k.a. aftertouch
+    s8 aftertouch_to_LFO_to_TVA; //LFO to TVA level depth
+    s8 aftertouch_to_LFO_to_TVF; //LFO to TVF freq depth
+    s8 mod_to_LFO_rate;
+    s8 mod_to_LFO_depth; //a.k.a. modulation
+    s8 mod_to_LFO_to_TVA; //LFO to TVA level depth
+    s8 mod_to_LFO_to_TVF; //LFO to TVF freq depth
+    s8 resonance;
+    u8 ctrl_sel;
+    s8 control_to_pitch;
+    s8 control_to_TVA_level;
+    s8 control_to_TVF_freq;
+    s8 control_to_LFO_rate;
+    s8 control_to_LFO_depth;
+    s8 control_to_LFO_to_TVA; //LFO to TVA level depth
+    s8 control_to_LFO_to_TVF; //LFO to TVF freq depth
+    s8 attack;
+    s8 release;
+    s8 aftertouch_to_LFO_to_pan; //S-760 V2
+    s8 mod_to_LFO_to_pan; //S-760 V2
+    s8 control_to_LFO_to_pan; //S-760 V2
+    bool oneshot; //S-760 V2
+    u8 unknown4[2];
+};
+
+enum Pan_special_values: s8
+{
+    rnd = 33,
+    key_plus,
+    key_minus,
+    LFO_plus,
+    LFO_minus,
+    alt
+};
+
+union Partial_sample_entry_pan
+{
+    s8 value;
+    Pan_special_values special;
 };
 
 struct PartialSampleEntry
 {
     u16 sample_index;
-    u8 key_shift;
+    s8 key_shift; //normal = 8
     u8 volume;
-    s8 pan;
+    Partial_sample_entry_pan pan;
     s8 coarse_tune;
-    u8 fine_tune;
-    u8 vel_low;
-    u8 unknown3;
-    u8 vel_high;
-    u8 unknown4[6];
+    s8 fine_tune;
+    u8 low_vel;
+    u8 low_fade;
+    u8 high_vel;
+    u8 high_fade;
+};
+
+enum Filter_mode_t: u8
+{
+    low_pass,
+    band_pass,
+    high_pass,
+    off = 0xFF
+};
+
+enum LFO_waveform_t: u8
+{
+    sine,
+    tri,
+    saw_up,
+    saw_down,
+    square,
+    rnd,
+    bend_up,
+    bend_down
 };
 
 struct Partial
 {
     char name[16];
-    PartialSampleEntry sample_entries[4];
-    u8 filter_env_vel;
+    PartialSampleEntry sample_entry1;
     u8 unknown;
-    u8 other_data[46];
+    u8 output_mono;
+    u8 unknown2;
+    u8 volume;
+    u8 special_mono_out; //likely related to outputs
+    PartialSampleEntry sample_entry2;
+    u8 unknown3;
+    s8 pan;
+    s8 coarse_tune;
+    s8 fine_tune;
+    bool SMT_vctrl;
+    PartialSampleEntry sample_entry3;
+    u8 unknown4;
+    u8 output_abs;
+    u8 unknown5[3];
+    PartialSampleEntry sample_entry4;
+    Filter_mode_t filter_mode;
+    u8 filter_cutoff;
+    u8 resonance;
+    u8 TVF_vel_curve;
+    s8 TVF_csens;
+    s8 TVF_time_vel_sens;
+    s8 TVF_env_vel_sens;
+    u8 TVF_env_release_level;
+    u8 TVF_env_attack_level;
+    u8 TVF_env_decay_level;
+    u8 TVF_env_sustain_level;
+    u8 TVF_env_attack_time;
+    u8 TVF_env_decay_time;
+    u8 TVF_env_sustain_time;
+    u8 TVF_env_release_time;
+    s8 TVF_env_TVF_depth;
+    s8 TVF_env_pitch_depth;
+    u8 TVF_KF_point; //MIDI keynum
+    s8 TVF_time_KF;
+    u8 unknown6;
+    s8 TVF_cutoff_KF; //see manual
+    u8 TVA_vel_curve;
+    u8 TVA_csens;
+    u8 TVA_time_vel_sens;
+    u8 unknown7;
+    u8 TVA_env_attack_level;
+    u8 TVA_env_decay_level;
+    u8 TVA_env_sustain_level;
+    u8 TVA_env_attack_time;
+    u8 TVA_env_decay_time;
+    u8 TVA_env_sustain_time;
+    u8 TVA_env_release_time;
+    u8 unknown8;
+    u8 TVA_KF_point;
+    s8 TVA_time_KF;
+    u8 unknown9;
+    s8 TVA_level_KF;
+    LFO_waveform_t LFO_waveform;
+    u8 LFO_rate;
+    bool LFO_key_sync;
+    u8 LFO_delay;
+    u8 LFO_delay_KF;
+    u8 LFO_rate_detune;
+    u8 LFO_pitch_depth;
+    u8 LFO_TVF_depth;
+    u8 LFO_TVA_depth;
+    u8 LFO_pan_depth;
+    s8 TVF_rls_vel_sens;
+    s8 TVA_rls_vel_sens;
+    u8 unknown10[4];
 };
 
 enum Looping: u8
 {
-    Fwd,
-    Off = 2,
-    Other = 4
+    fwd,
+    fwd_rls,
+    off, //oneshot
+    fwd_plus_one,
+    alt,
+    rev_one,
+    rev
 };
 
 enum SampleRate: u8
@@ -76,8 +278,11 @@ enum SampleRate: u8
     FourtyEight_KHz,
     FourtyFour_Point_One_KHz,
     TwentyFour_KHz,
-    Unknown,
-    TwentyTwo_Point_OhFive_KHz
+    TwentyTwo_Point_OhFive_KHz,
+    Thirty_KHz,
+    Fifteen_KHz,
+    ThirtyTwo_KHz,
+    Sixteen_KHz
 };
 
 bitfield Format
@@ -93,20 +298,21 @@ struct SampleParameters
     char name[16];
     u8 unknown;
     u24 start_offset;
-    u8 unknown2;
+    u8 loop_fine_start;
     u24 loop_start;
     u8 unknown3;
     u24 loop_end;
-    u8 unknown4;
-    u24 length_minus_four;
+    u8 release_loop_fine_start;
+    u24 release_loop_start;
     u8 unknown5;
-    u24 length;
+    u24 release_loop_end;
     Looping looping;
-    u8 unknown6[3];
+    u8 unknown6;
+    s8 loop_tune;
+    s8 release_loop_tune;
     u8 start_segment;
     u8 disk_index;
-    u8 segment_cnt;
-    u8 unknown8;
+    u16 segment_cnt;
     Format format;
     u8 root_note;
     u8 unknown9[2];
@@ -120,9 +326,19 @@ struct SampleParameterSection
 
 Header header @ 0x00;
 
+if(header.media_type == Media_type::DSHD_diskette)
+    SAMPLE_CNT = HD_SAMPLE_CNT;
+else SAMPLE_CNT = DD_SAMPLE_CNT;
+
+if(S760)
+{
+    AUDIO_ADDR += (SEGMENT_LENGTH * 2 * 5);
+    SAMPLE_CNT -= (SEGMENT_LENGTH * 5);
+}
+
 u8 disk_index @ 0x100;
 u8 multi_disk_cnt @ 0x101;
-u8 unknown[4] @ 0x102;
+u32 ID @ 0x102;
 u16 volume_cnt @ 0x106;
 u16 perfrm_cnt @ 0x108;
 u16 patch_cnt @ 0x10A;
@@ -139,4 +355,5 @@ Performance performances[perfrm_cnt] @ 0x4E00;
 Patch patches[patch_cnt] @ 0x8E00;
 Partial partials[partial_cnt] @ 0x10E00;
 SampleParameterSection samples[sample_cnt / 10 + ((sample_cnt % 10) > 0)] @ 0x18E00;
-u16 audio[672768] @ 0x1F800;
+Extra_perf_params ex_perf_params @ NORMAL_AUDIO_ADDR;
+u16 audio[SAMPLE_CNT] @ AUDIO_ADDR;
