@@ -213,3 +213,8 @@ suspect to be the upper byte for that value. As for samples' start segments,
 checked. It would appear that the start segment from the list is used instead.
 It's likely that the segment count from the list is also used instead of the
 sample's own, although the segment count was already 16-bit.
+
+
+Deleting a volume, performance, etc. will overwrite its list entry with 0s and
+its parameters entry with 0xFF. The FAT will see any segments corresponding to
+deleted samples marked with 0, just like normal free segments.
