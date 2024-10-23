@@ -1,0 +1,353 @@
+The decomp (https://github.com/zeldaret/mm) and its tools were immensely helpful
+for this. Pretty much all data structures I got from the decomp.
+Z64Utils (https://github.com/Random06457/Z64Utils) is a good tool to work with
+Z64 ROMs and their filesystems. z64decompress
+(https://github.com/z64utils/z64decompress) can be used to decompress the ROMs.
+
+Zelda64 bank data is divided into three parts: the bank table, the bank data and
+the audio data.
+The bank data file is usually called audiobank and the audio data file is
+usually called audiotable.
+The audio data is encoded using VADPCM.
+Patches are divided into three types: Instruments, drums and sound effects.
+Big-endian.
+
+Bank table (TOC)
+	The bank table appears to always be located near the end of the code file.
+	It stores the number of banks and a 16-byte entry for each bank. Each entry
+	contains the address, size and element counts of a bank. Sizes and addresses
+	are uncompressed. According to the decomps, OoT has 38 banks and MM has 41
+	banks. NTSC-J MM only has 40 banks.
+
+	MM bank table locations
+		NTSC-J: 0x138910 (from start of code), 656 (0x290) bytes.
+	
+		NTSC-U: According to isghj5's mm_audiobank_ripper it's at 0xC776C0
+				(abs), 0x2A0 bytes.
+
+		PAL: 0x132910 (from start of code), 672 (0x2A0) bytes.
+
+	Table format
+		0x00: Either padding or the upper byte of the bank count,
+		0x01: Bank count. 8-bit uint.
+		0x02: Likely padding. 14 bytes, all 0s.
+		0x10: Bank entries.
+	
+	Bank entry format
+		0x0: Start address. 32-bit uint.
+		0x4: Size. 32-bit uint.
+		0x8: Unknown. 4 bytes.
+		0xC: Instrument count. 8-bit uint, but max is 126.
+		0xD: Drum count. 8-bit uint, no limit.
+		0xE: SFX count. 16-bit uint.
+
+Looking at the TOC, it seems there's a maximum of 255 instruments, 255 drums and
+65535 sound effects per bank. In practice, the instruments max out at 126
+(according to the decomp "Instrument Id 126 and above is reserved. There can
+only be 126 instruments, indexed from 0 to 125"). No such limitations seem to
+apply to drums or sound effects. There can be at least one sample per sound
+effect and up to 3 per instrument, so there can theoretically be 126 * 3 + 255 +
+65535 (66168 total) samples per bank. Each sample can have its own loop and
+book, so there's a theoretical maximum of 66168 loops and 66168 books per bank.
+Each drum and each inst can have its own envelope, so there can be up to 381
+envelopes per bank.
+
+Banks
+	All banks are stored within a single file (audiobank). Because the TOC
+	already gives you the address and size of each bank, working with the bank
+	file is pretty straightforward.
+	
+	A bank contains two offset tables, the general offset table and the drum
+	offset table. All offsets are 32-bit. Offsets are relative to the start of
+	the current bank, not the start of the bank file. Everything else is patch
+	data; be it patches, samples, loops, etc.
+
+	The general offset table is stored at the start of the bank and starts with
+	two special offsets.
+	The first one points to the drum offset table, so I've called it the
+	drum-offset-table offset.
+	The second one, the SFX offset, is an offset to the first sound effect
+	entry. Sound effects are stored as a contiguous array of sound effect
+	entries.
+	The rest of the general offset table are offsets to instrument entries.
+	Instrument offsets may be 0. Offsets of 0 should be ignored but still count
+	toward the instrument count in the TOC (ie. the TOC's instrument count
+	includes these null offsets).
+
+	Both the drum-offset-table offset and the SFX offset may be null (when the
+	drum count and/or SFX count are 0 in the TOC). On the other hand, I've seen
+	banks that contain no drums that still have non-zero drum counts in the TOC.
+	In those cases the drum-offset-table offset is not null, but the drum offset
+	table is comprised entirely of null entries.
+
+	The drum offset table is an array of offsets to drum instances. These
+	offsets may also be 0. Null offsets should again be ignored and still count
+	toward the TOC's drum count.
+
+	Patches
+		As stated earlier, these are divided into three types; instruments,
+		drums and sound effects.
+
+		All patches reference samples through "tuned samples". A tuned sample
+		contains just an offset to the sample metadata and a tuning in the form
+		of a single-precision float. Different tuned samples may point to the
+		same sample. Different patches may point to the same tuned sample.
+
+		Tuned sample (8 bytes)
+			0x0: Sample offset. 32-bit uint. Offset from the start of the bank.
+			0x4: Tuning. 32-bit float.
+
+			The offset may be 0. In that case, the tuned sample should be
+			ignored.
+		
+		The simplest patches are sound effects. These are, in fact, just a
+		single tuned sample.
+		Drums and intruments are proper patches. Instruments use up to three
+		tuned samples. Drums are simpler and use one sample.
+
+		Drum (16 bytes)
+			0x0: ADSR decay index. 8-bit uint.
+			0x1: Pan. 8-bit. Looks like it behaves like MIDI pan values.
+			0x2: Relocated flag. 1 byte.
+			0x3: Padding. 1 byte.
+			0x4: Tuned sample. 8 bytes.
+			0xC: Envelope offset. 32-bit uint. Offset from the start of the
+				 bank.
+
+		Instrument (32 bytes)
+			0x00: Relocated flag. 1 byte.
+			0x01: Normal sample low note. 1 byte. Looks like MIDI note values.
+			0x02: Normal sample high note. 1 byte. Looks like MIDI note values.
+			0x03: ADSR decay index. 8-bit uint.
+			0x04: Envelope offset. 32-bit uint. Offset from the start of the
+				  bank.
+			0x08: 3 tuned sample slots. 3 x 8 bytes.
+
+		Both instruments and drums reference envelopes through an offset (from
+		the start of the bank, of course). I've never encountered null envelope
+		offsets, I don't know if they are allowed.
+		I don't know what the ADSR decay index is used for. The referenced
+		envelopes are typical four-point (ADSR) envelopes.
+
+	Envelopes
+		Four-point envelopes. Each envelope point is made up of two signed
+		16-bit integers. The decomp calls these "delay" and "arg". I'm assuming
+		these are a rate and a level, respectively. The first one is the rate,
+		the second one is the level. My assumption is these are used as TVA
+		envelopes, but I haven't looked into it.
+
+		According to the decomp, some negative rate values have special
+		meanings. These values are 0 (ADSR_DISABLE), -1 (ADSR_HANG), -2
+		(ADSR_GOTO) and -3 (ADSR_RESTART). I don't know what the actual effects
+		of these are.
+
+	Samples
+		Each sample references one book and one loop. I've never encountered
+		null values for those offsets.
+
+		Sample (16 bytes)
+			0x0: Sample format. 8-bit bitfield.
+			0x1: Size. 24-bit uint.
+			0x4: Audio offset. 32-bit uint. Absolute address of the audio within
+				 the audio file (audiotable).
+			0x8: Loop offset. 32-bit uint. Offset from the start of the bank.
+			0xC: Book offset. 32-bit uint. Offset from the start of the bank.
+
+		Sample format
+			unknown: 1 (top bit)
+    		codec: 3, enum
+    		medium: 2, enum
+    		unknown2: 1
+    		is_relocated: 1
+
+		Codec
+			ADPCM4,
+    		S8, // 16 2-byte samples (32 bytes) compressed into 8-bit samples (16 bytes)
+    		S16_INMEMORY,
+    		ADPCM2,
+    		REVERB,
+    		S16,
+    		UNK,
+    		UNK2 //treated as uncompressed
+
+		Medium
+			RAM,
+    		UNK,
+    		CART,
+    		DISK_DRIVE,
+    		RAM_UNLOADED = 5
+
+		Different samples may point to the same books or loops.
+		Samples as stored in ROM all have the medium set to RAM instead of CART,
+		for some reason.
+		All samples as stored in ROM use either ADPCM4 or ADPCM2.
+
+	Loops
+		Loop (16 or 48 bytes)
+			0x00: Start. 32-bit uint.
+			0x04: Loop end. 32-bit uint.
+			0x08: Count. 32-bit uint. The number of times the loop will be
+				  played. Max value means loop until release.
+			0x0C: Sample end. 32-bit uint.
+			0x10: Predictor state. 16 16-bit ints. Only exists if count is not
+				  0.
+
+		I suppose start works as both the loop start and a start offset. The
+		samples themselves already contain a size, so sample end exists only to
+		cut samples short.
+
+		Predictor state is likely there because when jumping back to the start
+		of the loop the most recently decoded samples would belong to the last
+		frame in the loop, not the one before the first frame. It's probably 16
+		uncompressed samples, but you should only need the last few
+		(corresponding to the book's order).
+		I'm not sure why it would be 16 samples long. I suppose it doesn't take
+		the sample's book's parameters into account, so it includes the maximum
+		number of samples that could ever be needed. The documentation I read
+		said the maximum value for order is 8, but the size of the loop's
+		predictor state would seem to point to 16 being the maximum allowed
+		order (if my hypothesis is correct).
+
+		I'm not sure why loops are detached from samples either, considering the
+		predictor state (if it is what I think it is) would only be valid for a
+		specific sample. That's assuming the start and end values would somehow
+		work for other samples, too. Furthermore, if you wanna have different
+		loops for the same sample, you're going to have to add a copy of the
+		sample that points to a different loop. Maybe it would have made more
+		sense to reference loops from tuned samples and not samples themselves.
+
+	Books
+		Variable-size sets of variable coefficients. These are used for audio
+		decoding.
+
+		Book (variable size, order * num_predictors * 8)
+			0x0: Order. 32-bit uint.
+			0x4: Number of predictors. 32-bit uint.
+			0x8: Coefficients. A variable number of 16-bit signed integers.
+
+		A book can be thought of as a 3-dimensional array, with the number of
+		predictors as the size of the first dimension and order as the size of
+		the second dimension. The final dimension's size is always 8.
+		The total size is thus order * num_predictors * 8.
+
+		Books are stored as [predictor_0][order_0][0], [predictor_0][order_0][1]
+		... [predictor_0][order_0][8], [predictor_0][order_1][0] ...
+		[predictor_0][order_n][8], [predictor_1][order_0] [0]... So they're
+		stored in the obvious way; no interleaving, no transposing. The decomp
+		does transpose each predictor, however.
+
+VADPCM
+	There's at least two variants depending on the size of the compressed
+	samples, 4 bits or 2 bits. They're both treated in the same way. No extra
+	scaling is applied to the 2-bit one, or at least it's not hardcoded (it
+	might just use higher scale values). N64 Zeldas use both variants.
+
+	Books
+		VADPCM uses variable coefficient sets, usually refered to as "books".
+		Coefficients are signed 16-bit integers. Usually, each "file" uses its
+		own book.
+
+		Books can be thought of as arrays of 3 dimensions.
+		The first dimension, the number of predictors, is variable in size. What
+		documentation I found indicates its length may be at most 8; although MM
+		stores the number of predictors as a 32-bit int, and the way the VADPCM
+		data is stored makes it possible to address up to 16 predictors per
+		book.
+		The second dimension is the order and correlates with the history's
+		depth. It seems that this too should be limited to 8 or less; although,
+		yet again, MM stores it as a 32-bit int.
+		The final dimension is always of length 8.
+		
+		To summarize, a book may be though of as [n_predictors] pages of [order]
+		sets of 8 coefficients; or an array such as book[n_predictors][order]
+		[8]. Do note that some tooling treats books as [n_predictors] pages of 8
+		sets of [order + 8] coefficients.
+		
+	Frames
+		VADPCM-compressed audio is split into frames. MM uses 16-sample frames;
+		9-byte frames for VADPCM4, 5-byte frames for VADPCM2.
+
+		A VADPCM frame consists of one header byte (the first one) and a
+		variable number of compressed-audio bytes.
+		The header byte encodes the predictor and scale to be used for the
+		frame's duration. The lower nibble indicates which predictor to use as a
+		0-based index. The upper nibble encodes the scale expressed as a left
+		shift.
+	
+	Primitive frames
+		The codec was designed to be decoded in 8-sample batches, regardless of
+		frame size. I oftentimes call these batches sub-frames or primitive
+		frames.
+	
+	History
+		At the start of the sub-frame, the history should contain the last
+		[order] fully decoded samples. It should grow to [order + 8] over the
+		sub-frame's duration by appending the current sub-frame's extracted and
+		scaled samples (the values before adding their respective predicted
+		values).
+
+	Decoding a sample can be divided into roughly three parts.
+
+	The first part is extracting it from the byte that contains it,
+	sign-extending it and scaling it. Because we're dealing with typical signed
+	audio, it's safer to multiply by 1 << scale; rather than shift directly.
+	
+	The second part is using the coefficients and history to get the predicted
+	value. For all 8 samples; you must first multiply the previous
+	last-order coefficients by the previous samples depending on the position
+	within the sub-frame. Then, multiply the [order] coefficients with the
+	oldest [order] samples, respectively, using the position within the
+	sub-frame as a 0-7 index for the book's last dimension.
+	For example, if [order] is 2 and you're decoding the 6th sample within a
+	sub-frame, you would multiply the previous 5 2nd-order coefficients by the 5
+	most recent samples in the history and add them to the accumulator. Then,
+	you would multiply the 1st and 2nd-order coefficients at index 5 with the
+	next 2 most recent samples and add them to the accumulator. Within a
+	subframe, the history grows to a length of [order + 7]. Technically; the
+	history grows to [order + 8], but that last value never matters.
+	
+	The last step is to add the predicted value (the accumulator) either shifted
+	right by 11, or divided by 1 << 11, onto the previously extracted and scaled
+	value.
+	The MM decomp's tooling says to divide by 1 << 11 and round down; but
+	integer division usually rounds toward 0 by default, so it wouldn't need to
+	go out of its way to round the value if that were what it wanted. On the
+	other hand; right-shifting is the easiest way to divide rounding toward
+	negative infinity, if that's what it wanted, but it's not what it does. Not
+	sure what's going on there.
+	
+	The result should be a 16-bit signed integer.
+
+	Additional information
+		The codec was apparently designed to be implemented with the RSP, not
+		the CPU. The 8-sample primitive frame size and 8-coefficient set size
+		likely stem from the RSP's 8 x 16-bit (128-bit total) Vector Unit.
+
+		What I'm curious about is how exactly it handles the predictor math.
+		Most, if not all, implementations I've seen rely on 32-bit math for
+		that. The documentation I've read doesn't mention the VU having any
+		32-bit capabilities, although it does mention a "48-bit final
+		accumulator".
+
+		I'm also unsure how it handles the [order] history samples and using
+		different sets of coefficients for each sample within the primitive
+		(8-sample) frame.
+		The latter I suppose is implemented in a similar manner to how the
+		decomp's tooling's decoder does it; ie. treating the history and
+		coefficients as vectors and running a pass for each pair (history + one
+		coef set) of vectors. This requires some extra processing on the books
+		upon loading; namely, loading them transposed and expanding each set by
+		appending the previous last-order coefficients.
+		The former is what stumps me. The history and coefficient sets end up
+		being [order - 1 + 8]-elements long (technically 10 elements in the
+		decomp's tooling's implementation, but neither 10th element is ever
+		used). How those are supposed to work with the RSP's 8-wide VU is beyond
+		me. Mind you, what I've been calling a history is actually the [order]
+		most recent fully decoded samples and the 8 extracted and scaled samples
+		in the current frame.
+
+		Regardless, SIMD is fairly popular so implementing this in a way true to
+		SGI's intent should be doable in any reasonably modern ISA. On x86, for
+		example, SSE2 should lend itself fairly well to this. The lower register
+		count (8 x86 XMM regs vs. 32 RSP VU regs) might pose a bit of a problem,
+		although x86-64 should be fine (16 XMM regs).
