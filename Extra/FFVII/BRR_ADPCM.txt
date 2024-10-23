@@ -1,0 +1,38 @@
+NoCash's doc:
+	https://problemkaputt.de/psxspx-spu-adpcm-samples.htm
+	https://problemkaputt.de/psxspx-cdrom-xa-audio-adpcm-compression.htm
+
+relevant file from vgmstream:
+	https://github.com/vgmstream/vgmstream/blob/master/src/coding/psx_decoder.c
+
+Q-Gears claims the audio is 22.1 KHz. AFAIK, PS1 audio is usually 22.05 KHz.
+Apparently this https://github.com/qeeg/super-hpsx64/tree/master/hps1x64/src/spu/src
+can decode Sony's bespoke ADPCM flavor.
+
+There's two variants, 8-bit and 4-bit (at least on the PS1). FFVII uses the
+4-bit variant for samples.
+
+Uses fixed coefficients. POS {0, 60, 115, 98, 122}, NEG {0, 0, -52, -55, -60}.
+The last pair of coefficients is only used for SPU BRR (as opposed to XA BRR).
+
+4-bit SPU BRR uses 16-byte frames. Each frame has a 2-byte header.
+The first byte stores a filter index (top nibble) and a variable right shift
+(bottom nibble).
+The second byte stores loop data. The lowest bit being set indicates the end of
+the loop.
+
+First, a fixed left shift of 12 (at least for 4-bit BRR) is used. Then, the
+variable (sticky) right shift is used. If the variable shift is greater than 12,
+it's treated as 9 (this applies to both 8 and 4-bit ADPCM).
+
+For 4-bit ADPCM, the order of compressed samples within a byte is low nibble
+then high nibble.
+
+NoCash's documentation claims you can subtract the right shift from the left
+shift and just shift left. That's not correct, since the double shift is used
+for sign-extension (it's a signed right shift); so it would break with negative
+samples.
+It also divides the predicted value by 64 after multiplication and addition but
+before adding it to the sample. vgmstream's code shifts right by 6. While
+this results in slightly different values (for negative samples only), the
+effect is extremely small.
