@@ -185,13 +185,16 @@ Banks
 	Loops
 		Loop (16 or 48 bytes)
 			0x00: Start. 32-bit uint.
-			0x04: Loop end. 32-bit uint.
+			0x04: Loop end. 32-bit uint. Number of samples.
 			0x08: Count. 32-bit uint. The number of times the loop will be
 				  played. Max value means loop until release.
-			0x0C: Sample end. 32-bit uint.
+			0x0C: Sample end. 32-bit uint. Number of samples.
 			0x10: Predictor state. 16 16-bit ints. Only exists if count is not
 				  0.
 
+		The decomp doesn't specify if start is an address or a number of
+		samples. I'm going to assume it's the latter, since loop end and sample
+		end are sample counts.
 		I suppose start works as both the loop start and a start offset. The
 		samples themselves already contain a size, so sample end exists only to
 		cut samples short.
