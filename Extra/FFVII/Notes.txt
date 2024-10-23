@@ -1,0 +1,42 @@
+I got the data structures from the Q-Gears documentation.
+Also got some information from Phanoo's webzone:
+	https://web.archive.org/web/20190320140257/http://sdamo.io/ff7/index.php
+
+PS1 is little-endian.
+
+You can inspect the discs' filesystems on a PC like any regular CD-ROM, although
+all files are hidden. I think it's regular ISO9660, although I'm not sure how
+that interacts with CD-XA.
+
+INSTR.ALL contains a 16-byte header and the rest is mono 4-bit ADPCM audio.
+The resulting PCM audio will be 16-bit signed 22.05 (or maybe 22.1?) KHz.
+
+INSTR.DAT contains "patch" data. The patches are really simple, however; they're
+barely more than samples. The first two variables are the start of a sample
+(absolute address) and the loop start point (also an absolute address). Both
+have an offset of +0x1000.
+Next is ADSR envelope data; as well as "pitch" data in the form of 12 32-bit
+ints per sample, which I'm assuming is some sort of tuning data. I think the
+pitch values might represent sample rates, but it's just a wild guess.
+
+The start and loop points use SPU addresses. The sample address space starts at
+0x1000. The first 16 bytes are usually occupied by a sine wave. Thus, the game's
+sample address space starts at 0x1010. To read straight from INSTR.ALL using
+INSTR.DAT's addresses, 0x1000 must be subtracted. This takes into account the
+16-byte header in INSTR.ALL, which is why we don't subtract 0x1010.
+
+From Stéphane "Phanoo" Damo's webzone:
+	ADPCM provies a 1:1.75 linear compression ratio (16 ADPCM bytes are
+	uncompressed to 28 PCM bytes). Therefore all sound offsets and loop points
+	must be multiplied by 1.75 if you deal with the uncompressed PCM instead of
+	decoding ADPCM on the fly.
+
+Assuming you strip out the header, I think the right way to do it would be:
+	org_addr -= 0x1010;
+	org_addr -= org_addr / 16 * 2;
+
+You can then optionally multiply by 2 if you want the address or keep it as is
+to get the sample index. If using 4-bit ADPCM; you would need to multiply by 2,
+optionally 4.
+
+Do sequences define more complex patches?
