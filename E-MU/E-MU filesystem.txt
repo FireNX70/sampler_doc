@@ -7,6 +7,15 @@ inspecting CD images on a hex editor.
 
 The filesystem is the same for both the EIII and EIV families.
 
+The filesystem is made up of 5 sections:
+	Header
+	FAT
+	Dir list
+	File list
+	Data
+
+These sections are usually found in the same order as in the list.
+
 Header
 	0x00: 0x45 0x4D 0x55 0x33 ("EMU3", magic)
 	0x04: Block count (u32) for the whole filesystem. Doesn't seem to actually
@@ -16,10 +25,11 @@ Header
 	0x0C: Directory list block count (u32).
 	0x10: File list block address (u32).
 	0x14: File list block count (u32).
-	0x18: Cluster list block address (u32).
-	0x1C: Cluster list block count (u32).
+	0x18: FAT block address (u32).
+	0x1C: FAT block count (u32).
 	0x20: Data section block address (u32).
-	0x24: Cluster count (u32).
+	0x24: Cluster count (u32, likely u16). Does not count the first (unusable)
+		  cluster. The size from the base of the FAT is this + DATA_MIN (1).
 	0x28: Cluster shift (u8).
 
 	Min cluster size of 32KB. Min cluster shift is 15, a cluster shift value of
@@ -28,52 +38,93 @@ Header
 	0x29 seems to always be 1.
 	0x2A seems to contain a copy of the filesystem's block count with a slightly
 	different value. It seems to line up better with the end of the padding and
-	the start of the zeroes on CD images. On EIV filesystems, this is a
-	big-endian copy of the filesystem's block count.
+	the start of the zeroes on CD images. On one EIV filesystem, this looked
+	like a big-endian copy of the filesystem's block count.
 	0x32 seems to always be 1.
 	0x33 seems to always be 0x0D.
 	0x34 and 0x35 sometimes are 1 and sometimes are 0.
 
-	The rest of the first block usually contains zeroes, except for the last two
-	bytes.
+	The rest of block 0 usually contains zeroes, except for the last two bytes.
 
-	The second block seems to start with a value of either 0x0C or 0x0B,
-	followed by three zeroes. The rest of the block is filled with 0x80.
 
-The cluster map seems to operate like a FAT.
-It seems it usually is located at block 2 (0x400) and is made up of unsigned
-16-bit values. Special values are 0x0000 (free cluster), 0x7FFF (EOF) and 0x8000
-(reserved cluster). Any value between 1 and 0x7FFE marks that a cluster is in
-use and which cluster is next. Cluster addresses should be treated as 0-based
-for the cluster map, but should be treated as 1-based when accessing data.
+Block 1 starts with what seems to be the value of the next available block in
+the file list (not sure if 16 or 32-bit). Can directories shrink? What would
+happen with this, then? At the very least, this doesn't seem to be updated when
+a directory is deleted (the dir entry itself isn't deleted, it's just marked as
+deleted). My guess is EMU's driver reuses the preexisting deleted directory
+entries first when creating new directories, the idea being to also reuse their
+already allocated dir content blocks. I think it's safe to assume EMU's driver
+never deallocates dir content blocks.
+The rest of the block is filled with 0x80 or 0.
+
+
+Next is the FAT. It's usually located at block 2 (0x400), although apparently
+it's relocatable. Cluster indices are 16-bit. Special values are 0x0000 (free
+cluster), 0x7FFF (EOF) and 0x8000 (reserved cluster). Any value between 1 and
+0x7FFE marks that a cluster is in use and which cluster is next. The FAT itself
+is 0-based, but as per usual DATA_MIN (1) corresponds to the start of data
+(which in turn is determined by the header's "Data section block address").
+Because the FAT's size will always be a multiple of 512; if the cluster count
+isn't a multiple of 256 (16-bit indices) minus one (first cluster is always
+reserved and does not count toward the cluster count), any leftover space will
+be filled with 0x8000.
+
+Testing on an E4 shows that it tries to keep the FAT at a size of about 4 blocks
+(1023 clusters), increasing the cluster size instead. Going from a 512MB to a
+2GB drive yielded a quadrupling of the cluster size while the amount of clusters
+stayed very similar. Moving to a 4GB drive showed similar behavior, with the
+cluster size now doubling and the cluster count staying nearly the same.
+
 
 The directory list is made up of 32-byte entries, where each one is a directory.
-Again, on EIII filesystems, it seems there's usually only one directory.
+Again, on EIII filesystems it seems there's usually only one directory.
+
+The maximum number of directories a filesystem may contain varies depending on
+the filesystem's size. EMU's EOS manual claims a 1GB disk may hold up to 96
+directories.
+On a 512MB drive, the directory list was 3 blocks in size. When moving to a 2GB
+drive, this section grew to take up 7 blocks. It then stayed the same size when
+moving to a drive slightly smaller than 4GB. Testing with a drive exactly 4GB in
+size had only the file list and cluster count grow, with everything else staying
+the exact same size. Finally, a harddrive which was slightly larger than 4GB had
+the directory list take up one less block because it grew the FAT by one block
+while leaving the cluster size the same. If the directory list is treated like a
+root directory of sorts, it makes sense the size would be capped at 7 blocks
+like it is for regular directories.
 
 Directory
 	0x00: Directory name. 16 chars long.
 	0x10: Unknown.
-	0x11: ID (u8). Directories apparently always use IDs of 0x40 or 0x80.
+	0x11: Type (1 byte enum). 0 (free), 0x40 (last) or 0x80 (normal).
 	0x12: 7 unsigned 16-bit entries. Each one is a block number (absolute,
 		  0-based), which should be part of the file list. The files listed in
 		  those blocks belong to this directory. 0xFFFF seems to be used as
 		  padding, but I guess any value that doesn't fall within the file
 		  list's blocks would count as such.
 
+	Directories cannot contain nested directories. They may only contain files.
+	Each directory could theoretically point to up to 112 (7 * 512 / 32) files.
+	However, EOS limits this to 100 files per folder.
+
+
+The file list is made up of 32-byte entries, where each one stores one file's
+metadata.
+
 File
 	0x00: File name. 16 chars long.
 	0x10: Unknown.
-	0x11: ID (u8). These start counting up from 0. IDs 0x6D and 0x6B seem to be
-		  reserved for "E3 Main Code" and "E3X Main Code", respectively.
-	0x12: 1-based absolute cluster address for the file. 16-bit, unsigned.
+	0x11: ID (u8). These start counting up from 0 and are local to each
+		  directory. IDs 0x6D and 0x6B seem to be reserved for "E3 Main Code"
+		  and "E3X Main Code", respectively.
+	0x12: Cluster address for the file. 16-bit, unsigned.
 	0x14: Cluster count. 16-bit, unsigned. Amount of clusters used by the file.
-	0x16: Block count. 16-bit, unsigned. Amount of blocks used by the file
-		  within the last cluster.
-	0x18: Byte count. 16-bit, unsigned. Amount of bytes used by the file within
-		  the last block.
-	0x1A: File type. 8-bit. Deleted files are 0, system files are 0x80, standard
-		  files are 0x81 and the first file after a deleted file has file type
-		  0x83, which emu3fs calls "UPD".
+	0x16: Block count. 16-bit, unsigned. Blocks used by the file within the last
+		  cluster.
+	0x18: Byte count. 16-bit, unsigned. Bytes used by the file within the last
+		  block.
+	0x1A: File type. 8-bit enum. 0 (free/deleted), 0x80 (system file), 0x81
+		  (standard file) and 0x83 (first file after a deleted file which emu3fs
+		  calls "UPD").
 	0x1B: 5 bytes which emu3fs calls "props". I have no idea what these do.
 		  emu3fs initializes them to 0 on EIII filesystems and to "\0E4B0" on
 		  EIV ones.
@@ -91,4 +142,7 @@ File
 		byte_cnt
 	
 	I'd like to see what would happen with a file if its end were to align
-	perfectly to a cluster or a block.
+	perfectly to a cluster or a block. I suppose cluster_cnt would be one
+	cluster more than used and block_cnt and byte_cnt would likely be 0, or
+	maybe you're only supposed to subtract from a count if the next count is not
+	0.
