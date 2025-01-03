@@ -52,20 +52,23 @@ Audio data starts at 0x2B5800 or 0x3B6000 (S-760).
 The header is the same as in the floppy format.
 
 Header (96 B)
-	0x00: Padding, 4 bytes.
+	0x00: 0s, 4 bytes.
 	0x04: Machine name, 10 chars.
 	0x0E: Padding, 1 byte.
 	0x0F: Media type, 1 byte enum.
 	0x10: Text, 80 chars. Sys. ver, copyright, etc.
 	
-	Machine name is always "S770 MR25A".
+	The first 4 bytes do need to be 0 for the sampler to recognize the FS (at
+	least on the S-760).
+
+	Machine name is always "S770 MR25A". It's the magic.
 	
 	The text appears to be the only reliable way to tell whether an HDD without
-	an OS was formatted by an S-760 or a more normal S-7XX machine. Text from a
-	normal S-7XX machine will contain "SYS-772" at 0x11 (from the start of the
-	text). An S-760 will write "S-760" there. The only real incompatibility
-	between both variants is the OS, which is why the S-760 uses a different
-	media type value for its HDDs with an OS to begin with.
+	an OS was formatted by an S-760 or an older S-7XX. Text from other S-7XX
+	machines will contain "SYS-772" at 0x11 (from the start of the text). An
+	S-760 will write "S-760" there. The only real incompatibility between both
+	variants is the OS, which is why the S-760 uses a different media type value
+	for its HDDs with an OS to begin with.
 
 
 Media type
@@ -125,12 +128,11 @@ FAT
 	Slot 0 is always 0xFFFA.
 	Slot 1 tracks the number of remaining free segments.
 	
-	The FAT works with audio segments instead of clusters. Audio segment
-	indices always have an offset of +2 (the beginning of audio data would be
-	treated as segment 2). The maximum index value for data is 0xFFF5. 0
-	indicates a free segment. 0xFFF8 is the end-of-chain marker. The S-760 marks
-	the segments taken up by the OS (the first 114 segments) with 0xFFFE (first
-	half) and 0xFFFD (second half).
+	The FAT's only used for audio and uses a fixed cluster size of 9216 (same as
+	the diskettes' segment size). Index 2 is the start of data. The maximum
+	index value for data is 0xFFF5. 0 indicates a free segment. 0xFFF8 is the
+	end-of-chain marker. The S-760 marks the segments taken up by the OS (the
+	first 114 segments) with 0xFFFE (first half) and 0xFFFD (second half).
 	
 	Modifying the free segment count does directly affect the displayed
 	remaining time. Even if the block count doesn't match, recalculating the
@@ -153,10 +155,16 @@ List entry (32 B)
 	0x1C: Start segment, 16-bit uint. Only used by samples.
 	0x1F: Segment count, 16-bit uint. Used by pretty much everything.
 	
+	The name's first character determines whether an entry is free/deleted. Both
+	0 and 0xFE mark free slots. 0xFE only affects that entry. 0 means both that
+	entry and all subsequent entries are free.
+
 	I'm not sure why the element type variable exists. It's not like you could
 	have lists with entries of different types, so it's completely redundant.
-	Perhaps they intended to make a proper filesystem originally? To be fair, it
-	is useful in determining whether a given slot is in use.
+	Perhaps they intended to make a proper filesystem originally? I used to
+	think it controlled whether a slot was free, but it doesn't seem to be the
+	case. Not when displaying the lists, not when counting for the TOC, not when
+	saving files.
 	
 	On the LCDP libraries, what I have called indices behave in a sane way. In
 	the first entry, next index would be 0x8001, prev index would be 0xFFFF and
@@ -209,7 +217,7 @@ Patch (512 B)
 
 
 It's strange that they chose to keep the data structures identical to the
-diskette format's and to just append an entire half block's worth of data for
+diskette format's and to just append an entire half-block's worth of data for
 the 16-bit indices.
 
 Partials and samples are identical to the diskette format's.
@@ -221,28 +229,32 @@ likely that the segment count from the list is also used instead of the sample's
 own.
 
 
-Deleting a volume, performance, etc. will overwrite its list entry with 0s and
-its parameters entry with 0xFF. The FAT will see any segments corresponding to
+Deleting a volume, performance, etc. will overwrite most of its list entry with
+0s and its parameters entry with 0xFF. The first byte of the list entry's name
+will not be set to 0 but to 0xFE. The FAT will see any segments corresponding to
 deleted samples marked with 0, just like normal free segments.
 Care must be taken when loading a list to account for empty slots within it (for
 example, the TOC listing 88 samples doesn't mean they'll occupy slots 0 - 87).
-Checking whether the element type of a given entry is 0 seems reasonable. Worth
-noting is that, when deleting a single entry (or only a few), the first byte of
-the name will not be set to 0 but to 0xFE on the deleted entries.
+The list entry's name's first char must be checked for 0 or 0xFE.
 
 Lower level elements can be deleted even if in use by higher level elements
 (i.e. a sample can be deleted even if used by a partial, a partial can be
-deleted even if used by a patch, etc.). Loading three partials, one that uses a
-deleted sample (now an empty sample slot), one that uses a sample before it and
-one using a sample after it, will see the corresponding sample entry disabled
-in the partial that referenced the deleted sample while the other two partials
-will still use the correct samples. Looking through the sample menu, no free
-slots are left in memory. Despite the disk load menu displaying a contiguous
-list without free slots, saving a sample inserts it into the free slot.
-Returning to the load menu will display it where the free slot would have been.
-Loading the three partials again, the one that referenced the empty slot will
-now load and use the newly saved sample while the other two still use their
-corresponding samples. This behavior appears unaffected by list indices ("List
-entry" 0x12, 0x14 and 0x16). I tested both with unmodified and zeroed indices.
-When inserting the sample into the list with zeroed indices, next index and prev
-index both were 0xFFFF and current index was 0.
+deleted even if used by a patch, etc.). Higher level elements will be left
+untouched, they will still reference the now-free slots. Changes to the segment
+counts will not propagate upward.
+
+Other deletion-related tests I performed are described below.
+Loading three partials, one that uses a deleted sample (now an empty sample
+slot), one that uses a sample before it and one using a sample after it, will
+see the corresponding sample entry disabled in the partial that referenced the
+deleted sample while the other two partials will still use the correct samples.
+Looking through the sample menu, no free slots are left in memory. Despite the
+disk load menu displaying a contiguous list without free slots, saving a sample
+inserts it into the free slot. Returning to the load menu will display it where
+the free slot would have been. Loading the three partials again, the one that
+referenced the empty slot will now load and use the newly saved sample while the
+other two still use their corresponding samples. This behavior appears
+unaffected by list indices ("List entry" 0x12, 0x14 and 0x16). I tested both
+with unmodified and zeroed indices. When inserting the sample into the list with
+zeroed indices, next index and prev index both were 0xFFFF and current index was
+0.
