@@ -425,9 +425,11 @@ Sample (48 B)
 	and reading it, it turns out the top nibble was reset to 0 by the sampler.
 	
 	The format uses mono samples exclusively. It creates stereo pairs by using
-	two samples with 0x7F 'L' and 0x7F 'R' (which the S-7XX machines display as
+	two samples with 0x7F 'L' or 0x7F 'R' (which the S-7XX machines display as
 	"=L" and "=R", respectively) as the last two characters of a sample's name.
 	The rest of the name is identical.
+	Partials point to both samples in stereo pairs. The ones I checked used pan
+	values of -32 (L) and +32 (R).
 	
 	It seems even Roland's official library contains samples that try to read
 	past the end of the disk. I don't know if it's meant to read from the next
