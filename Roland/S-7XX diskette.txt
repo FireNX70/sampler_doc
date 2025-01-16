@@ -82,9 +82,11 @@ Header (96 B)
 Media type
 	HDD, //also used for CDs
 	HDD_with_OS = 0x20,
-	DSHD_diskette = 0x32,
+	DSDD_SYS_770 = 0x31,
+	DSHD_diskette,
 	DSDD_diskette,
-	S760_HDD_with_OS = 0x40
+	S760_HDD_with_OS = 0x40,
+	DSHD_SYS_760 = 0x50
 
 
 Element counts/TOC (16 B)
