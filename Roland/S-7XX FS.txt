@@ -72,11 +72,13 @@ Header (96 B)
 
 
 Media type
-	HDD,
+	HDD, //also used for CDs
 	HDD_with_OS = 0x20,
-	DSHD_diskette = 0x32,
+	DSDD_SYS_770 = 0x31,
+	DSHD_diskette,
 	DSDD_diskette,
-	HDD_with_OS_S760 = 0x40
+	HDD_with_OS_S760 = 0x40,
+	DSHD_SYS_760 = 0x50
 	
 	The media types used by CDs are identical to those used by HDDs. Other
 	media, like SyQuest or Zip disks, probably also use it. The manual makes it
@@ -96,21 +98,11 @@ TOC (32 B)
 	0x1C: Sample count, 16-bit uint.
 	0x1E: Padding, 2 bytes.
 	
-	The variable I believe to be the block count is 0x3E000 on LCDP-05 and
-	0x1214D4 on a 2 GB CF after formatting.
-	
-	LCDP-05's size would be exactly 0x7C00000; and it is true that, starting at
-	that address, it's all 0s. However, LCDP-05's audio section seems to
-	actually end at 0x78B83FF and I've confirmed it only has 13427 segments.
-	This means it actually is only 0x3C5C2 blocks in size.
-	On the other hand, the CF's total usable space (tested by filling it up with
-	an S-760 until it reported no space left) perfectly coincided with "Block
-	count" (assuming 512 B blocks).
-	
-	Modifying the block count on the CF did not affect the available time
-	displayed by the sampler, which is actually directly controlled by a
-	variable in the FAT. Reinitializing the CF only resulted in the block count
-	being set back to 0x1214D4.
+	Block count is for the whole FS (including header, fixed sections, etc.).
+	Modifying the block count does not affect the available time displayed by
+	the sampler, it is actually directly controlled by a variable in the FAT.
+	Reinitializing the FS will result in the block count being set back to take
+	up all available space if previously modified.
 
 
 The OS is stored at 0x800 through 0x807FF. On the S-760; more OS data is stored
