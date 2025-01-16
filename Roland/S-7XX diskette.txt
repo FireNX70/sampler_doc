@@ -85,7 +85,7 @@ Media type
 	DSDD_SYS_770 = 0x31,
 	DSHD_diskette,
 	DSDD_diskette,
-	S760_HDD_with_OS = 0x40,
+	HDD_with_OS_S760 = 0x40,
 	DSHD_SYS_760 = 0x50
 
 
