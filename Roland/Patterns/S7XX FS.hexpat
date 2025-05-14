@@ -1,4 +1,4 @@
-#pragma pattern_limit 786432
+#pragma pattern_limit 1048576
 #pragma endian little
 
 u32 S770_AUDIO_DATA_ADDR = 0x2B5800;
@@ -6,18 +6,15 @@ u32 S760_AUDIO_DATA_ADDR = 0x3B6000;
 
 u32 audio_data_addr;
 
-bool S760 = false;
-
-if(S760) audio_data_addr = S760_AUDIO_DATA_ADDR;
-else audio_data_addr = S770_AUDIO_DATA_ADDR;
-
-enum Media_type: u8
+enum media_type_t: u8
 {
     HDD, //also used for CDs
-    HDD_with_OS = 0x20,
-	DSHD_diskette = 0x32,
+	HDD_with_OS = 0x20,
+	DSDD_SYS_770 = 0x31,
+	DSHD_diskette,
 	DSDD_diskette,
-	HDD_with_OS_S760 = 0x40
+	HDD_with_OS_S760 = 0x40,
+	DSHD_SYS_760 = 0x50
 };
 
 struct Header
@@ -25,8 +22,14 @@ struct Header
     padding[4];
     char machine_name[10];
     padding[1];
-    Media_type media_type;
+    media_type_t media_type;
     char sys_version[80];
+    
+    if(media_type == media_type_t::HDD_with_OS
+    || media_type == media_type_t::HDD_with_OS_S760)
+    {
+        u8 S7XX_OS_data[0x80000] @ 0x800;
+    }
 };
 
 struct TOC
@@ -142,28 +145,24 @@ struct Performance
     u8 velo_curve_type[16];
     u16 abs_patch_indices[32];
     
-    if(S760)
-    {
-        u8 unused[63];
-        u8 ex_perf_params_flag;
+    u8 unused[63];
+    u8 ex_perf_params_flag;
         
-        if(ex_perf_params_flag == 0)
-        {
-            Extra_perf_params ex_perf_params;
-            u8 unused2[28];
-        }
-        else u8 unused2[128];
+    if(ex_perf_params_flag == 0)
+    {
+        Extra_perf_params ex_perf_params;
+        u8 unused2[28];
     }
-    else u8 unused[192];
+    else u8 unused2[128];
 };
 
 enum SMT_csel_t: u8
 {
     pitch_bend,
-	aftertouch,
-	modulation,
-	control_change,
-	off = 255
+    aftertouch,
+    modulation,
+    control_change,
+    off = 255
 };
 
 struct Patch
@@ -300,10 +299,10 @@ struct Partial
     s8 TVF_csens;
     s8 TVF_time_vel_sens;
     s8 TVF_env_vel_sens;
-    u8 TVF_env_release_level;
-    u8 TVF_env_attack_level;
-    u8 TVF_env_decay_level;
-    u8 TVF_env_sustain_level;
+    u8 TVF_env_release_cutoff;
+    u8 TVF_env_attack_cutoff;
+    u8 TVF_env_decay_cutoff;
+    u8 TVF_env_sustain_cutoff;
     u8 TVF_env_attack_time;
     u8 TVF_env_decay_time;
     u8 TVF_env_sustain_time;
@@ -316,7 +315,7 @@ struct Partial
     s8 TVF_cutoff_KF; //see manual
     u8 TVA_vel_curve;
     u8 TVA_csens;
-    u8 TVA_time_vel_sens;
+    s8 TVA_time_vel_sens;
     u8 unknown7;
     u8 TVA_env_attack_level;
     u8 TVA_env_decay_level;
@@ -402,6 +401,10 @@ struct SampleParameters
 };
 
 Header header @ 0x0;
+
+if(header.media_type == 0x40) audio_data_addr = S760_AUDIO_DATA_ADDR;
+else audio_data_addr = S770_AUDIO_DATA_ADDR;
+
 TOC toc @ 0x100;
 FAT_t FAT @ 0x80800;
 Volume_list_entry volume_list[toc.volume_cnt] @ 0xA0800;
