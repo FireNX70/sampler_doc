@@ -1,14 +1,14 @@
 E-MU filesystem. Shared by both the EIII and EIV families.
 
-Most of this comes from looking through David García Goñi's emu3fs code
-(https://github.com/dagargo/emu3fs) and inspecting CD and HDD images in a hex
-editor.
+This documentation was produced by referencing David García Goñi's emu3fs code
+(https://github.com/dagargo/emu3fs) and inspecting CD and HDD images, plus some
+of my own testing.
 
 512B blocks. Little-endian.
 
 The filesystem is the same for both the EIII and EIV families.
 
-The filesystem is made up of 5 sections:
+The filesystem is made up of 6 sections:
 	Header
 	Block 1
 	FAT
@@ -16,7 +16,7 @@ The filesystem is made up of 5 sections:
 	File list
 	Data
 
-These sections are usually found in the same order as in the list.
+These sections are usually found in the same order as the list.
 
 Header
 	0x000: 0x45 0x4D 0x55 0x33 ("EMU3", magic)
@@ -54,10 +54,11 @@ Header
 	documentation.
 
 
-Block 1 starts with the value of the next available block for directory contents
-(not sure if 16 or 32-bit). However, this should NOT be trusted; although it
-should still be kept up-to-date. See the documentation on directories for more
-information.
+Block 1 starts with the value of the next available block for directory
+contents. 32-bit seems wasteful, since directories use 16-bit ints for the block
+addresses; but it looks like a 32-bit int, considering padding for the rest
+block 1. This number should NOT be trusted, although it should still be kept
+up-to-date. See the documentation on directories for more information.
 The rest of the block is filled with 0x80 or 0.
 
 
@@ -74,8 +75,8 @@ reserved and does not count toward the cluster count), any leftover space will
 be filled with 0x8000.
 
 Testing on an E4 shows that it tries to keep the FAT at a size of about 4 blocks
-(1023 clusters), increasing the cluster size instead. Going from a 512MB to a
-2GB drive yielded a quadrupling of the cluster size while the amount of clusters
+(1023 clusters), increasing the cluster size instead. Going from a 512MB drive
+to a 2GB one yielded a quadrupling of the cluster size while the cluster count
 stayed very similar. Moving to a 4GB drive showed similar behavior, with the
 cluster size now doubling and the cluster count staying nearly the same.
 
@@ -100,13 +101,13 @@ Directory
 	0x00: Directory name. 16 chars long.
 	0x10: Unknown.
 	0x11: Type (1 byte enum). 0 (free), 0x40 (last) or 0x80 (normal).
-	0x12: Block addresses, 7 unsigned 16-bit entries. Absolute, 0-based, should
+	0x12: Block addresses, 7 unsigned 16-bit entries. Absolute, 0-based. Should
 		  be part of the file list. The files listed in those blocks belong to
 		  this directory. 0xFFFF seems to be used as padding, but I guess any
 		  value that doesn't fall within the file list's blocks would count as
 		  such.
 
-	Name behavior is somewhat inconsistent. The first directory ("Default
+	Name behavior is somewhat inconsistent. The first directory's name ("Default
 	Folder", which I think is created by mkfs) is padded with spaces all the way
 	to the end. Other directories (created on an E4) are padded with spaces most
 	of the way, but they're null-terminated unless the last character is in use.
@@ -116,21 +117,24 @@ Directory
 	to the extent that a forward slash ('/') is perfectly legal; although my E4
 	does not seem to react to '|' or '\'. I suppose forward slashes could be
 	mapped to backslashes and back.
+	EOS doesn't seem to have a problem working with directories with names
+	padded with nulls.
 
 	My E4 (running EOS 4.10a) does not do a particularly good job of keeping the
-	last directory correctly marked. It seems to do fine when creating
-	directories initially, but deleting the last directory will not mark the new
-	last one as such. Creating a new directory past the last one will not mark
-	it as the last one either; so once the "last" mark is gone, it's gone for
-	good. I've seen other filesystem images where it was missing, so this seems
-	to be fairly common.
+	last directory correctly marked. It marks it when creating directories
+	initially, but deleting the last directory will not mark the new last one.
+	Creating a new directory past the last one will not mark it as the last one
+	either; so once the "last" mark is gone, it's gone for good. I've seen other
+	filesystem images where it was missing, so this seems to be fairly common.
 	Creating a backup through EOS' backup function will correctly mark the last
 	directory in the backup, regardless of whether it's marked in the source.
 	The source remains untouched.
+	EOS will list existing directories even after a directory marked with type
+	0x40 anyway, so this "last" type really doesn't seem all that special.
 
-	On truly new directories, all blocks are marked 0xFFFF. EOS does not appear
-	to allocate any space for the directory's contents when making a directory.
-	My assumption was new directories reusing deleted directory entries should
+	On completely new directories, all blocks are marked 0xFFFF. EOS does not
+	allocate any space for the directory's contents when making a directory. My
+	assumption was new directories reusing deleted directory entries should
 	reuse the old directory's blocks. However, I've seen my E4 (EOS 4.10a
 	classic) consistently overwrite allocated block entries with 0xFFFF. Causing
 	EOS to allocate a new dir content block did not reclaim the unused ones and
@@ -170,6 +174,8 @@ File
 	Filenames need not be unique. The actual unique identifier is the bank
 	number. Much like directory names, filenames are somewhat inconsistent with
 	regards to null terminators.
+	EOS doesn't seem to have a problem working with files with names padded with
+	nulls.
 
 	Bank number is 0-based, can be freely changed by users (but must be unique),
 	and is not expected to be in any order (it's not used as any kind of index
@@ -193,13 +199,18 @@ File
 	Block count and byte count don't seem to behave in a special way (so 1 is
 	still subtracted from the parent count) when set to 0, at least when
 	checking file size through EOS' file manager. I still want to check how EOS
-	would write a file whose size aligns perfectly to the cluster size, but
-	after my latest testing my assumption is the block count would match the
-	number of blocks in a cluster and the byte count would match the block size.
-	This would mean cluster size is limited by the files' 16-bit block count,
-	and because it must be a power of two it would be limited to 32768 (2^15)
-	blocks. This means the max cluster shift is 9 on-disk, for a total of 1 <<
-	24.
+	would write a file whose size aligns perfectly to the cluster size. The "E3
+	Main Code" file from several library CDs has a size of 1 cluster, 128 blocks
+	and 512 bytes. My assumption is it's exactly 128 blocks in size (1 cluster,
+	of which 128 blocks are used, and the entire final block is in use). The
+	problem is I can't be sure because the file consists entirely of the exact
+	same padding as unused parts of the filesystem. At least this confirms the
+	byte count can match the block size. Considering this and my latest testing,
+	my assumption is the block count would match the number of blocks in a
+	cluster and the byte count would match the block size. This would mean
+	cluster size is limited by the files' 16-bit block count, and because it
+	must be a power of two it would be limited to 32768 (2^15) blocks. This
+	means the max cluster shift is 9 on-disk, for a total of 1 << 24.
 
 	Most files are regular E-MU bank files (file type 0x81), except for the two
 	reserved system files ("E3 Main Code" and "E3X Main Code"), which were both
@@ -211,7 +222,7 @@ File
 	had the next file retain its 0x81 file type. Creating a new file just
 	overwrote the deleted file entry using a type of 0x81.
 
-	emu3fs initializes props to 0 on EIII filesystems and to "\0E4B0" on EIV
+	emu3fs initializes props to 0 on EIII filesystems, and to "\0E4B0" on EIV
 	ones. EOS sets these to "\0E4B0" on EIV files and to "\0ExB0" on EIIIX banks
 	generated when exporting samples as EIIIX. While EOS also gives you the
 	option of exporting samples as WAVE or AIFF, neither if those seemed to
