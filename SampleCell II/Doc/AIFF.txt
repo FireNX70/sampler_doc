@@ -1,0 +1,52 @@
+Regular AIFFs work. AIFF-C is unsupported (even with "NONE"-type "compression"),
+at least on the Windows NT SampleCell Editor 2.1.3.
+
+Documentation on the base format by Prof. Peter Kabal can be found here:
+https://www-mmsp.ece.mcgill.ca/Documents/AudioFormats/AIFF/AIFF.html
+
+Although these don't need a resource fork; in Mac-originated AIFFs sometimes
+there's "LENV" and/or "RENV" resources, which I assume are envelopes. At least
+some of those AIFFs had the file creator "Sd2a", so I assume SoundDesigner II
+does that.
+These files also contained "APPL" chunks, with "ALCHENVS" right at the start of
+the chunk data. This seems rather redundant.
+
+Much like with WAV, audio is handled in the standard way; and so is
+sampler-related metadata (in this case, via chunks INST and MARK), for the most
+part...
+
+Much like it does with WAVs, SampleCell Editor adds the following chunks:
+	bext
+	Elmo
+	umid
+	minf
+	regn
+	ovwf
+
+Yes, SampleCell Editor (at least the Windows version) adds the BWF bext chunk to
+AIFFs (and the umid chunk). Seems to work the same way it does for WAVs.
+
+
+INST
+	The root note is used if opening a file from the sample zone menu or if
+	setting root notes (using the "from file" option). It is ignored if opening
+	the file from the file menu. Modifying the zone's root note, then modifying
+	the sample did NOT write the new value to the AIFF.
+
+	It sets gain to 0x7FFF. Keep in mind; the spec says gain is in number of dB,
+	so this is insane.
+
+	If only the sustain loop is present, the editor detects it just fine.
+	I haven't tested what happens if only the release loop exists.
+	If both loops are present; the sustain loop will be used as the sustain
+	loop, and the release loop will be used as the release loop.
+
+
+MARK
+	Markers use names "beg_loop" and "end_loop" for both loops. Names need not
+	be unique and don't really serve a functional purpose, this is just an
+	observation.
+	IDs are 0 - 3; with the first two being used by the sustain loop, and the
+	latter two by the release loop. The use of ID 0 is technically somewhat
+	non-standard, as the spec says "the ID can be any positive non-zero
+	integer"; but this shouldn't really be a problem.

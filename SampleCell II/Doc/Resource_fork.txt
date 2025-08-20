@@ -1,0 +1,80 @@
+Starts with a header. Usually, the next 240 bytes appear to be reserved.
+The header points to a second copy of itself, as well as the resource data
+section. It also contains the sizes of the resource data section and the
+resource metadata section.
+
+The overall structure is:
+	1. Header points to header copy (base of resource metadata region), and to
+	   the resource data section.
+
+	2. At 0x18 within the resource metadata section, there's the resource
+	   metadata offsets. These are 2 uint16s. The first one points to the type
+	   data section. The second one points to the name data section. These are
+	   relative to the resource metadata region.
+
+	3. The type data section consists of a uint16 count of types, followed by an
+	   array of type entries. The real count is this count's value +1. If no
+	   types exist, its value will be 0xFFFF. Each type entry contains a uint16
+	   count (also offset by -1, so 1 should be added) and yet another offset.
+	   This offset is relative to the type data section, and points to an array
+	   of metadata entries.
+
+	4. Each metadata entry corresponds to an actual resource, and contains two
+	   further offsets; one for its name, and one for its data. The name offset
+	   is relative to the name section (see point 2). It may point out of bounds
+	   (or maybe it's 0xFFFF specifically), which flags that it doesn't have a
+	   name. The data offset is relative to the resource data section (see point
+	   1).
+
+
+Header
+	0x00: uint32. Resource data address.
+	0x04: uint32. Header copy address.
+	0x08: uint32. Resource data size.
+	0x0C: uint32. Metadata size.
+
+	Keep in mind, all these might actually be 24-bit. The data offsets used by
+	each resource are, so these might also be.
+
+
+Type metadata entry
+	0x00: char[4]. FourCC.
+	0x04: uint16. Resource count.
+	0x06: uint16. Resource array offset.
+
+	It appears there's at least one standard resource type: "STR ". These are
+	Pascal strings without padding.
+
+	The actual value of the resource count is whatever the metadata entry holds
+	+1.
+
+	The resource array offset is relative to the type metadata section.
+
+
+Resource metadata entry
+	0x00: uint16. ID.
+	0x02: uint16. Name offset.
+	0x04: uint8. Unknown.
+	0x05: uint24. Data offset.
+	0x08: uint8[4]. Unknown.
+
+	ID is the actual identifier, not the name the entry points to.
+
+	The name offset is relative to the name section offset. Actual value is this
+	+1. 0xFFFF means unused.
+
+	Unknown at 0x04 is usually 0, but I've also encountered a value of 0x20.
+
+	The data offset is relative to the header's resource data address.
+	It turns out the data offsets in metadata entries are 24 bits in size. From
+	Inside Macintosh Volume VI, page 1145: "[...] offsets to resource data are
+	stored as 24-bit quantities [...]". I initially treated it as a uint32; but
+	I had several resources where the top byte would then be 0x20, which would
+	put it way out of bounds.
+
+
+Names are Pascal strings without padding.
+
+
+Data always starts with a uint32 (possibly actually 24-bit) data size. This is
+what the metadata entries' data offset points to. The data immediately follows.
