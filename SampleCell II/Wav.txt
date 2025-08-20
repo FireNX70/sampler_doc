@@ -1,0 +1,51 @@
+8-bit audio is unsupported.
+
+Handles sample params through a typical "smpl" chunk.
+Also adds the following chunks:
+	bext (BWF broadcast extension chunk)
+	Elmo
+	umid (BWF-related)
+	minf
+	regn
+	ovwf
+
+
+Elmo has its size set to 350, but it's all 0s.
+
+
+umid
+	The obvious guess is it's SMPTE 330M UMID data, just parted out to its own
+	chunk instead of being included in the bext chunk, but it doesn't seem to
+	line up.
+
+
+regn and ovwf both have their size set to 4. They're both all 0s.
+
+
+smpl
+	Manufacturer ID is 16777235 (0x1000013). Product ID is 666 (0x29A). It does
+	not require these to accept loop data, that's just what it writes if it
+	writes the file itself.
+
+	Sample period gets set to 0 by SampleCell Editor.
+
+	The MIDI root note is used when setting root notes from audio files and when
+	opening files from the zone menu, but it's inconsistent. It is never used
+	when opening a file from the file menu.
+	If the smpl chunk is ever modified; the root note is either left untouched,
+	or has 60 (C4) writen to it.
+	Sample loops size, the size of manufacturer-specific loop data that should
+	come after the standard loop data, gets set to whatever the root note is.
+	Even if the root note isn't 0, this "extra data" is nowhere to be found.
+	I have at least one file where SampleCell Editor will read "Sample loops
+	size" instead of the MIDI root note. I thought it might be down to whether
+	"Sample loops size" is 0, as that's how it is on my other files; but setting
+	it to 0 did not fix anything. This file also had the other chunks SampleCell
+	Editor adds, whereas the other files didn't.
+
+	Samples with a single loop will have the loop use ID 1. Samples with two
+	loops will use IDs 1 and 2. The ID doesn't seem to matter, however; a sample
+	with a single loop with ID 0 had its loop recognized and treated as the
+	sustain + release loop (the expected behavior from SampleCell if there's a
+	single loop). Uses the "Alternate" loop type (value 1) for what the editor
+	calls "Fwd/bck", which does seem like the same thing.

@@ -1,0 +1,369 @@
+IFF file.
+
+There's 4 variants, each with its own FourCC:
+	Single-sample mono (SCsd)
+	Single-sample stereo (SCss)
+	Multi-sample mono (SCin)
+	Multi-sample stereo (SCsi)
+
+All variants should have at least the following chunks:
+	FVER (standard IFF chunk)
+	ANNO (standard IFF chunk)
+	FILP (common, see FILP doc)
+	KeyS
+	KeyP
+	GenP
+
+Additionally, multi-sample instruments have the following chunks:
+	EnvP
+	LFOP
+	Ramp
+	TrkP
+	ModP
+
+
+KeyS
+	0x00: char[4]. FourCC.
+	0x04: uint32. Size.
+	0x08: uint32. Entry count.
+	0x0C: uint32. Entry size.
+	0x10: uint32. Total sample data size.
+	0x14: Entries.
+
+	Assuming 16-bit samples, total sample data size should usually be the sum of
+	all sample counts times 2.
+
+
+KeyS entry
+	0x00: uint8[3]. Unknown, likely upper 3 bytes for 0x03. 0 on all my files.
+	0x03: uint8. ID?
+	0x04: uint8[5]. Unknown, last byte likely upper for 0x09. 0 on all my files.
+	0x09: uint8. Channel.
+	0x0A: uint8[4]. Unknown, always 0.
+	0x0E: uint32. Sample count.
+	0x12: uint8. Name length.
+	0x13: char[31]. Name. Fixed-size, "Name length" only indicates used length.
+	0x32: uint32. Start offset.
+	0x36: uint16. Fine tune.
+	0x38: uint8. As insane as it may seem, likely the upper byte for 0x39.
+	0x39: uint8 (flag). Enable loop.
+	0x3A: uint16. Loop fine tune.
+	0x3C: uint8. As insane as it may seem, likely the upper byte for 0x3D.
+	0x3D: uint8 (flag). Enable release loop.
+	0x3E: uint16. Release loop fine tune.
+
+	Stereo samples generate 2 entries (at least stereo wavs do). Both entries
+	have the same ID.
+
+	Channel uses value 1 on mono samples, and values 1 and 2 on stereo.
+
+	Fine tune values are displayed as +-63, but the actual value range is 0 -
+	126; where 0 is displayed as -63, 63 (default value) is displayed as 0, and
+	126 is displayed as 63. So to get the actual signed value (which is what you
+	would want anyway), you have to subtract 63. Why the hell would you do it
+	like this?
+
+
+KeyP
+	0x00: char[4]. FourCC.
+	0x04: uint32. Size.
+	0x08: uint16. Entry count.
+	0x0A: uint8[4]. Unsure.
+	0x0E: Entries.
+
+	KeyP actually contains two layers of entries. The outer ones correspond to
+	keygroups, the inner ones to velocity zones. A keygroup may contain up to 6
+	velocity zones.
+
+	Max 60 key groups.
+
+	0x0A could be a uint16 size for the outer entries (key groups), that would
+	work fine on my files.
+	If we then were to assume the next two bytes (at 0x0C) are the size for the
+	inner entries (velocity zones), the size would be off by 4 (value was 14,
+	but the actual size was 18).
+
+
+KeyP outer entry (key group)
+	0x00: uint16. High note.
+	0x02: int16. Key group pan. Range +-99. Default 0.
+	0x04: uint16. Inner entry (velocity zone) count.
+
+
+KeyP inner entry (velocity/sample zone)
+	0x00: uint32. KeyS index. Used on both mono and stereo samples.
+	0x04: uint32. KeyS index 2. Used on stereo samples only.
+	0x08: uint16. Low velocity.
+	0x0A: uint16. Level. Range 0 - 99. Default 99.
+	0x0C: uint8. Unknown, might very well be the upper byte for 0x0D.
+	0x0D: uint8 (flag). Direction. Default false.
+	0x0E: uint16. Fine start offset. Default 0.
+	0x10: uint16. Root note.
+
+	Velocity zones point to samples via an index into KeyS (not the ID). The
+	same sample may be referenced multiple times; be it from different velocity
+	zones within the same keygroup, or from different keygroups altogether.
+	keys_idx_2 is 0xFFFFFFFF on mono instruments. Mono samples in stereo
+	instruments have both channels pointing to the same KeyS entry.
+
+	Velocity zones only keep the low velocity, so you need to check the other
+	entries to find the high velocity. They seem to be sorted by velocity, but I
+	would not take that for granted.
+	The way velocity seems to work is it's split into 15 groups of 8 (group 0
+	would be either 0 - 7 or 8 - 15). The low velocity the inner entries store
+	corresponds to one of these groups.
+
+	The direction flag controls playback direction (not loops). Backwards
+	disables looping.
+
+	The fine start offset lets you offset further from the sample's (KeyS) own
+	start offset; but it's still a regular sample count, no fancy interpolation.
+
+
+GenP
+	0x00: char[4]. FourCC.
+	0x04: uint32. Size.
+	0x08: uint8[2]. Unknown. Might be the card number.
+	0x0A: uint16. MIDI channel.
+	0x0C: uint16. Low note.
+	0x0E: uint16. High note.
+	0x10: int16. Octave shift. Range -4 - +3. Default 0.
+	0x12: int16. Coarse tune. Range +-12. Default 0.
+	0x14: int16. Fine tune. Range +-99. Default 0.
+	0x16: uint8. Unknown, likely upper byte for 0x17.
+	0x17: uint8 (flag). Equal detune. Default false.
+	0x18: uint8. Unknown, likely upper byte for 0x19.
+	0x19: uint8 (flag). Key track. Default true.
+	0x1A: uint8. Unknown, likely upper byte for 0x1B.
+	0x1B: uint8 (flag). Mono. Default false, regardless of instrument type.
+	0x1C: uint16. Priority. Range 0 - 9. Default 0.
+	0x1E: uint16. Overlap. Range 0 - 99. Default 10.
+	0x20: uint8. Unknown, likely upper byte for 0x21.
+	0x21: uint8 (flag). Velocity crossfade. Default false.
+	0x22: uint8[12]. Unknown, nothing I did appeared to affect any change.
+	0x2E: int16. Pan. Range +-99. Default 0.
+	0x30: uint16. Output 1 (likely left).
+	0x32: uint16. Output 2 (likely right).
+	0x34: uint8[2]. Unknown, nothing I did appeared to affect any change.
+	0x36: uint16. Gain. Range 0 - 99. Default 99.
+	0x38: uint8. Unknown, likely upper byte for 0x39.
+	0x39: uint8. MIDI controller A. Range 0 - 120. Default 0.
+	0x3A: uint8. Unknown, likely upper byte for 0x3B.
+	0x3B: uint8. MIDI controller B. Range 0 - 120. Default 1.
+	0x3C: int16. Pitch wheel. Range +-12. Default 8.
+	0x3E: int16. Velocity. Range +-99. Default 30.
+	0x40: uint8. Unknown, likely upper byte for 0x41.
+	0x41: uint8 (flag). Disable MIDI volume and pan. Default false.
+	0x42: uint16. Filter frequency. Range 0 - 255. Default 255.
+
+	Seems to also use 16-bit integers for values that really don't need them.
+
+	I think 0x08 is a u16 storing the card number. Banks already store it
+	probably, and it makes more sense that it would be banks keeping track of it
+	anyway. It wouldn't be the only redundant data, MIDI channel and Pan are
+	also stored in banks.
+	If it really is the card number, its value seems to be inconsistent
+	depending on instrument type. Single-sample instruments (both mono and
+	stereo) used a value of 1. Both types of multi-sample instruments used a
+	value of 0. They were all assigned to card 1 (my only card).
+
+	Fine tune's range is displayed as +-50.
+
+	Priority has 0 displayed as "Low" and 9 displayed as "High".
+
+	With regards to 0x22, there was one file where the last 6 bytes were 0x0001
+	0x0001 0x0001, which makes it look like those last 6 bytes are 3 flags.
+	There were a couple files of mine where the first pair was 0x0001, too, so
+	the first 2 bytes might very well be another flag.
+
+	Out 1 and out 2 are 0-based and store the output channels that correspond to
+	the pairs selected from the bank editor. That is, if you select pair "1 and
+	2", out 1 will be 0 and out 2 will be 1.
+
+	Gain's range is displayed as 0 - -inf (99 displayed as 0)
+
+	Filter frequency's range is mapped to 13 Hz - 20135 Hz non-linearly.
+
+
+EnvP
+	0x00: char[4]. FourCC.
+	0x04: uint32. Size.
+	0x08: uint16. Entry count.
+	0x0A: uint16. Entry size.
+	0x0C: Entries.
+
+	3 envelopes, usually.
+	From SampleCell Editor's manual: "Envelope 3 in SampleCell is permanently
+	routed to Amplitude."
+
+
+EnvP entry (envelope)
+	0x00: uint8. Unknown, likely upper byte for 0x01.
+	0x01: uint8. Attack rate. Default 0.
+	0x02: uint8. Unknown, likely upper byte for 0x03.
+	0x03: uint8. Decay rate. Default 0.
+	0x04: uint8. Unknown, likely upper byte for 0x05.
+	0x05: uint8. Sustain level. Default 99.
+	0x06: uint8. Unknown, likely upper byte for 0x07.
+	0x07: uint8. Sustain rate. Default 99.
+	0x08: uint8. Unknown, likely upper byte for 0x09.
+	0x09: uint8. Release rate. Default 10.
+	0x0A: uint8. Unknown, likely upper byte for 0x0B.
+	0x0B: uint8. Gate time. Default 0.
+	0x0C: uint8. Unknown, likely upper byte for 0x0D.
+	0x0D: uint8 (flag). Key track. Default false.
+	0x0E: uint16. Amount. Default 99.
+
+	Gate time uses a range of 0 - 99 displayed as 0.11 - 90. This is mapped
+	non-linearly.
+
+	All envelope variables appear to use a 0 - 99 range,
+	with the exception of the Key track flag.
+
+LFOP
+	0x00: char[4]. FourCC.
+	0x04: uint32. Size.
+	0x08: uint16. Entry count.
+	0x0A: uint16. Entry size.
+	0x0C: Entries.
+
+	Usual entry count seems to be 2.
+
+
+LFOP entry
+	0x00: uint8. Unknown, likely upper byte for 0x01.
+	0x01: uint8. Rate. Range 0 - 99. Default 50.
+	0x02: uint8. Unknown, likely upper byte for 0x03.
+	0x03: uint8. Depth. Range 0 - 99. Default 0.
+	0x04: uint16 (enum). Mode. Default 0 (free run).
+	0x06: uint16 (enum). Shape. Default 0 (sine).
+
+	Rate is mapped non-linearly to 0.07 - 12 Hz.
+
+
+LFOP mode enum
+	free_run = 0,
+	sync,
+	trig,
+	sync_and_trig
+
+
+LFOP shape enum
+	sine = 0,
+	triangle,
+	upsaw,
+	dwnsaw,
+	square,
+	random,
+	noise
+
+
+Ramp (shared LFO data)
+	0x00: char[4]. FourCC.
+	0x04: uint32. Size.
+	0x08: uint8[4]. Unsure, but likely 2 uint16s; entry count and entry size.
+	0x0C: uint16. Ramp time, 0 - 99. Default 0.
+
+	Looks like 0x08 are the entry count (likely always 1) and entry size (likely
+	always 2). Extremely wasteful.
+
+	Ramp time is mapped non-linearly to 0 - 20 seconds.
+
+
+TrkP
+	0x00: char[4]. FourCC.
+	0x04: uint32. Size.
+	0x08: uint16. Entry count.
+	0x0A: uint16. Entry size.
+	0x0C: Entries.
+
+	Usually 2 entries.
+
+
+TrkP entry
+	0x00: uint16 (enum). Source. Default 0 (key).
+	0x02: uint16[9]. Levels.
+
+	Source uses the ModP source enum.
+
+	Default tracking curve is {0, 13, 25, 38, 50, 63, 75, 87, 99}. These are on
+	a range of 0 - 99, but each one is 16-bit.
+
+
+ModP
+	0x00: char[4]. FourCC.
+	0x04: uint32. Size.
+	0x08: uint16. Entry count.
+	0x0A: uint16. Entry size.
+	0x0C: Entries.
+
+	Usually 20 entries. By default only the first 4 are used.
+
+
+ModP entry
+	0x00: uint8. Unknown, likely upper byte for 0x01.
+	0x01: uint8 (flag). Gated. Default false.
+	0x02: uint16 (enum). Source. Default 18 (none).
+	0x04: uint16 (enum). Destination. Default 27 (none).
+	0x06: int16. Depth. Range +-99. Default 0.
+
+	Default values are documented from unused entries (all but the first 4 by
+	default).
+
+	The first entry defaults to false, 1 (velocity), 5 (sample selection), 99.
+	The second entry defaults to false, 10 (LFO1), 0 (pitch), 4.
+	The third entry defaults to false, 4 (modulation wheel), 23 (LFO1 depth),
+	99.
+	The fourth entry defaults to false, 6 (sustain pedal), 20 (envelope 3
+	release), 60.
+
+
+ModP source enum
+	key = 0,
+	vel,
+	release_vel,
+	pressure,
+	mod_wheel,
+	pitch_wheel,
+	sus_pedal,
+	env1,
+	env2,
+	env3,
+	LFO1,
+	LFO2,
+	ramp_gen,
+	tracking_gen1,
+	rand_gen,
+	MIDI_ctrlr_A,
+	MIDI_ctrlr_B,
+	tracking_gen2,
+	none
+
+
+ModP destination enum
+	pitch = 0,
+	pan,
+	vol,
+	sample_sel = 5,
+	sample_start_off,
+	env1_atk,
+	env1_dec,
+	env1_sus,
+	env1_rel,
+	env1_depth,
+	env2_atk,
+	env2_dec,
+	env2_sus,
+	env2_rel,
+	env2_depth,
+	env3_atk,
+	env3_dec,
+	env3_sus,
+	env3_rel,
+	env3_depth,
+	LFO1_rate,
+	LFO1_depth,
+	LFO2_rate,
+	LFO2_depth,
+	filter,
+	none

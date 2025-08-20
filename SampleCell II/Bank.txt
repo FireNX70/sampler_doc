@@ -1,0 +1,81 @@
+Banks may not point to the same instrument multiple times. Or at least, the
+Windows version of SampleCell Editor didn't let me add an instrument which was
+already open.
+
+IFF file. FourCC is "MixD".
+
+Chunks are:
+	FVER (standard IFF chunk)
+	ANNO (standard IFF chunk)
+	FILP (common, see FILP doc)
+	InsP
+	PRNT (NOT standard, AFAIK)
+	WinI
+
+FVER seems to always be "Monk" (0x4D6F6E6B).
+
+
+InsP
+	0x00: char[4]. FourCC.
+	0x04: uint32. Size.
+	0x08: uint32. Entry count.
+	0x0C: uint32. Entry size.
+	0x10: InsP entries.
+
+	One entry per instrument, corresponding to FILP entries.
+
+
+InsP entry (0x12, but size technically variable. See InsP.)
+	0x00: uint8. Unknown, but likely upper byte for 0x01. Always 0.
+	0x01: uint8. Gain. 0 - 99, default 99.
+	0x02: int16. Pan. +-99.
+	0x04: uint8. Unknown, but likely upper byte for 0x05. Always 0.
+	0x05: uint8 (enum). Output. Corresponds to stereo pairs.
+	0x06: uint8. Unknown, but likely upper byte for 0x07. Always 0.
+	0x07: uint8 (enum). Solo/mute status.
+	0x08: uint8. Unknown, but likely upper byte for 0x09. Always 0.
+	0x09: uint8. MIDI channel.
+	0x0A: uint8. Unknown, but likely upper byte for 0x0B. Always 0.
+	0x0B: uint8. Low note (MIDI).
+	0x0C: uint8. Unknown, but likely upper byte for 0x0D. Always 0.
+	0x0D: uint8. High note (MIDI).
+	0x0E: uint8[4]. Unknown, 4 bytes.
+
+	Not sure why everything's interleaved with 0s. I thought it might be for
+	either stereo or multi-sample instruments, but that doesn't seem to be the
+	case. Maybe it's all 16-bit? Pan turned out to be, since negatives set the
+	upper byte to 0xFF.
+
+	Gain is presented as a range of 0 - (-49, -inf), where 99 is displayed as 0
+	and 0 is displayed as -inf.
+
+	Solo/Mute: "Mute (Induced)" (value 2) is caused by other channels being
+	soloed. It's removed (set to 0) when solo is unmarked. Manual mute takes
+	precedence, value will stay 3 even if another channel is soloed.
+
+	Unknown (0x0E) appears to always be 0x00 0x01 0x04 0x98.
+
+
+Output enum
+	one_two = 0,
+	three_four,
+	five_six,
+	seven_eight
+
+
+Solo/mute enum
+	none = 0,
+	mute,
+	mute_induced,
+	solo
+
+
+PRNT
+	No idea what this does. Seems to always be 122 bytes in size (not counting
+	IFF chunk data).
+
+
+WinI
+	Probably window data for SampleCell Editor. Not particularly relevant;
+	nothing I did changed it, but I didn't try resizing or moving the bank's
+	window in SampleCell Editor.
