@@ -1,31 +1,8 @@
-#include <std/string>
-#include <std/math>
-
-#include <std/io>
+#include <std/mem>
 
 #pragma endian big
 
 /*Yes, the Windows bnk data is big-endian.*/
-
-struct IFF_chunk_t
-{
-	char four_cc[4];
-	u32 size;
-};
-
-struct FVER_chunk_t: IFF_chunk_t
-{
-	//four_cc = FVER
-	//size should be 4
-	char data[size]; //Should be "Monk"
-};
-
-struct ANNO_chunk_t: IFF_chunk_t
-{
-	//four_cc = ANNO
-	//size is variable
-	char text[size];
-};
 
 u32 cur_base;
 
@@ -48,7 +25,7 @@ struct FILP_entry_t
 	}
 };
 
-struct FILP_chunk_t: IFF_chunk_t
+struct FILP_chunk_t
 {
 	//four_cc = FILP
 	//size should be 8 or more
@@ -92,7 +69,7 @@ struct InsP_entry_t
 	u8 leftover[parent.entry_size - ($ - cur_base)];
 };
 
-struct InsP_chunk_t: IFF_chunk_t
+struct InsP_chunk_t
 {
 	//four_cc = InsP
 	//size should be 8 or more
@@ -101,29 +78,29 @@ struct InsP_chunk_t: IFF_chunk_t
 	InsP_entry_t entries[count];
 };
 
-struct PRNT_chunk_t: IFF_chunk_t
+struct IFF_chunk_t
 {
-	//four_cc = PRNT
-	//size is variable?
-	u8 data[size];
+	char four_cc[4];
+	u32 size;
+
+	match (four_cc)
+	{
+		("FVER"): u8 data[size]; //Should be "Monk"
+		("ANNO"): u8 data[size];
+		("FILP"): FILP_chunk_t filp;
+		("InsP"): InsP_chunk_t insp;
+		("PRNT"): u8 data[size];
+		("WinI"): u8 data[size];
+		(_): u8 data[size];
+	}
 };
 
-struct WinI_chunk_t: IFF_chunk_t
+struct IFF_root_t
 {
-	//four_cc = WinI
-	//size is variable?
-	u8 data[size];
-};
-
-struct IFF_root_t: IFF_chunk_t
-{
-	char magic[4]; //MixD for bank
-	FVER_chunk_t fver;
-	ANNO_chunk_t anno;
-	FILP_chunk_t filp;
-	InsP_chunk_t insp;
-	PRNT_chunk_t prnt;
-	WinI_chunk_t wini;
+	char magic[4];
+	u32 size;
+	char type[4];
 };
 
 IFF_root_t root_chunk @ 0;
+IFF_chunk_t chunk[while (!std::mem::eof())] @ $;
