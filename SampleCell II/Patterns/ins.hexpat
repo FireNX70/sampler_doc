@@ -1,26 +1,8 @@
+#include <std/mem>
+
 #pragma endian big
 
 /*Yes, the Windows data is big-endian.*/
-
-struct IFF_chunk_t
-{
-	char four_cc[4];
-	u32 size;
-};
-
-struct FVER_chunk_t: IFF_chunk_t
-{
-	//four_cc = FVER
-	//size should be 4
-	char data[size]; //Should be "Monk"
-};
-
-struct ANNO_chunk_t: IFF_chunk_t
-{
-	//four_cc = ANNO
-	//size is variable
-	char text[size];
-};
 
 u32 cur_base;
 u32 entry_base;
@@ -44,7 +26,7 @@ struct FILP_entry_t
 	}
 };
 
-struct FILP_chunk_t: IFF_chunk_t
+struct FILP_chunk_t
 {
 	//four_cc = FILP
 	//size should be 8 or more
@@ -75,7 +57,7 @@ struct KeyS_entry_t
 	u16 release_loop_fine_tune;
 };
 
-struct KeyS_chunk_t: IFF_chunk_t
+struct KeyS_chunk_t
 {
 	cur_base = $;
 	u32 count;
@@ -104,14 +86,14 @@ struct keygroup_t
 	vel_zone_t zones[inner_cnt];
 };
 
-struct KeyP_chunk_t: IFF_chunk_t
+struct KeyP_chunk_t
 {
 	u16 entry_cnt;
 	u8 data[4];
 	keygroup_t keygroups[entry_cnt];
 };
 
-struct GenP_chunk_t: IFF_chunk_t
+struct GenP_chunk_t
 {
 	u8 data[2]; //I think this is the card number
 	u16 MIDI_channel; //even though banks also keep it
@@ -147,7 +129,7 @@ struct GenP_chunk_t: IFF_chunk_t
 	u16 filter_freq; //0-255 mapped to 13-20135 (non-linear)
 };
 
-struct Inst_chunk_t: IFF_chunk_t
+struct Inst_chunk_t
 {
 	u16 entry_cnt;
 	u16 entry_size;
@@ -211,7 +193,7 @@ struct LFOP_chunk_t: Inst_chunk_t
 	LFOP_entry_t entries[entry_cnt];
 };
 
-struct Ramp_chunk_t: IFF_chunk_t
+struct Ramp_chunk_t
 {
 	//Shared LFO data
 	u8 data[4]; //entry_cnt and entry_size?
@@ -296,27 +278,37 @@ struct ModP_chunk_t: Inst_chunk_t
 	ModP_entry_t entries[entry_cnt];
 };
 
-struct IFF_root_t: IFF_chunk_t
+struct IFF_chunk_t
+{
+	char four_cc[4];
+	u32 size;
+
+	match (four_cc)
+	{
+		("FVER"): u8 data[size]; //Should be "Monk"
+		("ANNO"): u8 data[size];
+		("FILP"): FILP_chunk_t filp;
+		("KeyS"): KeyS_chunk_t keys;
+		("KeyP"): KeyP_chunk_t keyp;
+		("GenP"): GenP_chunk_t genp;
+		("EnvP"): EnvP_chunk_t envp;
+		("LFOP"): LFOP_chunk_t lfop;
+		("Ramp"): Ramp_chunk_t ramp;
+		("TrkP"): TrkP_chunk_t trkp;
+		("ModP"): ModP_chunk_t modp;
+		(_): u8 data[size];
+	}
+};
+
+struct IFF_root_t
 {
 	char magic[4]; //SCsd = single-sample mono
 					//SCss = single-sample stereo
 					//SCin = multi-sample mono
 					//SCsi = multi-sample stereo
-	FVER_chunk_t fver;
-	ANNO_chunk_t anno;
-	FILP_chunk_t filp;
-	KeyS_chunk_t keys;
-	KeyP_chunk_t keyp;
-	GenP_chunk_t genp;
-
-	if(magic == "SCin" || magic == "SCsi")
-	{
-		EnvP_chunk_t envp;
-		LFOP_chunk_t lfop;
-		Ramp_chunk_t ramp;
-		TrkP_chunk_t trkp;
-		ModP_chunk_t modp;
-	}
+	u32 size;
+	char type[4];
 };
 
 IFF_root_t root_chunk @ 0;
+IFF_chunk_t chunk[while (!std::mem::eof())] @ $;
